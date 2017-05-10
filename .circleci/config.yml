@@ -1,0 +1,10 @@
+version: 2
+jobs:
+  build:
+    docker:
+      - image: python:3.6
+    working_directory: /home/
+    steps:
+      - checkout
+      - run: pip install . -r tests/requirements.txt
+      - run: pytest --verbose
