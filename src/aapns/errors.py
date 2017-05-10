@@ -26,7 +26,7 @@ def create(codename):
     return cls
 
 
-BadCollapsId = create('BadCollapseId')
+BadCollapseId = create('BadCollapseId')
 BadDeviceToken = create('BadDeviceToken')
 BadExpirationDate = create('BadExpirationDate')
 BadMessageId = create('BadMessageId')

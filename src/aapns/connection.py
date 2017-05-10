@@ -62,7 +62,7 @@ class APNS(Protocol):
         if topic:
             request_headers.append(('apns-topic', topic))
         if collapse_id:
-            request_headers.append(('apsn-collapse-id', collapse_id))
+            request_headers.append(('apns-collapse-id', collapse_id))
         response = self._responses[stream_id] = PendingResponse()
         self._conn.send_headers(stream_id, request_headers)
         self._conn.send_data(stream_id, request_body, end_stream=True)
