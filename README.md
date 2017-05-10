@@ -7,7 +7,8 @@ Asynchronous Apple Push Notification Service client.
 
 
 ```python
-from aapns import connect, Notification, Alert, Production, Priority
+from aapns import connect, Notification, Alert, Production, Localized
+from aapns.config import Priority
 
 async def send_hello_world():
     connection = await connect('/path/to/push/cert.pem', Production)
@@ -15,7 +16,10 @@ async def send_hello_world():
         'my-device-token',
         Notification(
             alert=Alert(
-                body='Hello World!'
+                body=Localized(
+                    key='Hello World!',
+                    args=['foo', 'bar']
+                ),
             ),
             badge=42
         ),
