@@ -8,7 +8,8 @@ setup(
     packages=find_packages(where='src'),
     install_requires=[
         'h2',
-        'attrs'
+        'attrs',
+        'structlog',
     ],
     extras_require={
         'cli': ['click']
