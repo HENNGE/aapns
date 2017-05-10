@@ -7,7 +7,7 @@ setup(
     package_dir={'': 'src'},
     packages=find_packages(where='src'),
     install_requires=[
-        'h2',
+        'h2>3',
         'attrs',
         'structlog',
     ],
