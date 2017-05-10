@@ -1,8 +1,8 @@
 import json
+import os
 from asyncio import get_event_loop, Protocol, Future
 from ssl import create_default_context
 from typing import Optional
-from logging import getLogger
 
 import attr
 from h2.connection import H2Connection
@@ -11,6 +11,7 @@ from h2.events import (
     StreamReset,
 )
 from hyperframe.frame import SettingsFrame
+from structlog import wrap_logger, PrintLogger
 
 from . import errors, config, models
 
@@ -18,18 +19,17 @@ from . import errors, config, models
 SIZE = 4096
 
 
-logger = getLogger(__name__)
-
-
 @attr.s
 class PendingResponse:
+    logger = attr.ib()
     future = attr.ib(default=attr.Factory(Future))
     headers = attr.ib(default=None)
     body = attr.ib(default=b'')
 
 
 class APNS(Protocol):
-    def __init__(self, client_cert_path, server):
+    def __init__(self, client_cert_path, server, logger=None):
+        self._logger = logger or wrap_logger(PrintLogger(open(os.devnull, 'w')))
         self._client_cert_path = client_cert_path
         self._server = server
         self._conn = H2Connection()
@@ -40,12 +40,13 @@ class APNS(Protocol):
                                 token: str,
                                 notification: models.Notification,
                                 *,
-                                id: Optional[str]=None,
+                                apns_id: Optional[str]=None,
                                 expiration: Optional[int]=None,
                                 priority: config.Priority=config.Priority.normal,
                                 topic: Optional[str]=None,
                                 collapse_id: Optional[str]=None) -> str:
         stream_id = self._conn.get_next_available_stream_id()
+        logger = self._logger.bind(stream_id=stream_id)
         request_body = notification.encode()
         request_headers = [
             (':method', 'POST'),
@@ -55,32 +56,41 @@ class APNS(Protocol):
             ('content-length', str(len(request_body))),
             ('apns-priority', str(priority.value)),
         ]
-        if id:
-            request_headers.append(('apns-id', id))
+        if apns_id:
+            request_headers.append(('apns-id', apns_id))
         if expiration:
             request_headers.append(('apns-expiration', str(expiration)))
         if topic:
             request_headers.append(('apns-topic', topic))
         if collapse_id:
             request_headers.append(('apns-collapse-id', collapse_id))
-        response = self._responses[stream_id] = PendingResponse()
+        response = self._responses[stream_id] = PendingResponse(logger=logger)
+        logger.debug('request', headers=request_headers, body=request_body)
         self._conn.send_headers(stream_id, request_headers)
         self._conn.send_data(stream_id, request_body, end_stream=True)
         await response.future
+        logger.debug('response', headers=response.headers, body=response.body)
 
         headers = dict(response.headers)
 
         response_id = headers.get(b'apns-id', b'')
-        status = int(headers[b':status'].decode('ascii'))
+        if b':status' not in headers:
+            logger.critical('nostatus')
+            status = -1
+        else:
+            status = int(headers[b':status'].decode('ascii'))
 
         if status != 200:
             try:
                 reason = json.loads(response.body)['reason']
             except:
                 reason = response.body
-            raise errors.get(reason, response_id)
+            exc = errors.get(reason, response_id)
+            logger.criticial('error', exc=exc)
+            raise exc
         else:
-            return response_id.decode('ascii')
+            ascii_response_id = response_id.decode('ascii')
+            logger.debug('apns-id', apns_id=ascii_response_id)
 
     async def close(self):
         self._conn.close_connection()
@@ -113,7 +123,7 @@ class APNS(Protocol):
             elif isinstance(event, StreamReset):
                 self.reset_stream(event.stream_id)
             else:
-                logger.debug('Ignored event %s', event)
+                self._logger.debug('ignored', h2event=event)
 
         data = self._conn.data_to_send()
         if data:
@@ -121,36 +131,60 @@ class APNS(Protocol):
 
     def handle_response(self, response_headers, stream_id):
         if stream_id in self._responses:
+            self._responses[stream_id].logger.debug(
+                'response-headers',
+                headers=response_headers
+            )
             self._responses[stream_id].headers = response_headers
         else:
-            logger.warning('Unexpected stream id %s', stream_id)
+            self._logger.warning(
+                'unexpected-response',
+                stream_id=stream_id,
+                headers=response_headers
+            )
 
     def handle_data(self, data, stream_id):
         if stream_id in self._responses:
+            self._responses[stream_id].logger.debug(
+                'response-body',
+                data=data
+            )
             self._responses[stream_id].body += data
         else:
-            logger.warning('Unexpected stream id %s', stream_id)
+            self._logger.warning(
+                'unexpected-data',
+                stream_id=stream_id,
+                data=data
+            )
 
     def end_stream(self, stream_id):
         if stream_id in self._responses:
-            self._responses.pop(stream_id).future.set_result(True)
+            response = self._responses.pop(stream_id)
+            response.logger.debug('end-stream')
+            response.future.set_result(True)
         else:
-            logger.warning('Unexpected stream id %s', stream_id)
+            self._logger.warning('unexpected-end-stream', stream_id=stream_id)
 
     def reset_stream(self, stream_id):
         if stream_id in self._responses:
-            self._responses.pop(stream_id).future.set_exception(errors.StreamResetError())
+            response = self._responses.pop(stream_id)
+            response.logger.debug('reset-stream')
+            response.future.set_exception(errors.StreamResetError())
         else:
-            logger.warning('Unexpected stream id %s', stream_id)
+            self._logger.warning('unexpected-reset-stream', stream_id=stream_id)
 
 
-async def connect(client_cert_path: str, server: config.Server, *, ssl_context=None):
+async def connect(client_cert_path: str,
+                  server: config.Server,
+                  *,
+                  ssl_context=None,
+                  logger=None):
     if ssl_context is None:
         ssl_context = create_default_context()
         ssl_context.set_alpn_protocols(['h2'])
         ssl_context.set_npn_protocols(['h2'])
     ssl_context.load_cert_chain(client_cert_path)
-    api = APNS(client_cert_path, server)
+    api = APNS(client_cert_path, server, logger)
     await get_event_loop().create_connection(
         lambda: api,
         server.host,

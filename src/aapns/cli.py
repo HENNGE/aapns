@@ -2,6 +2,7 @@ from asyncio import get_event_loop
 
 import attr
 import click
+from structlog import get_logger
 
 from . import config, connection, models
 
@@ -28,14 +29,19 @@ class Context:
     priority = attr.ib()
     topic = attr.ib()
     collapse_id = attr.ib()
+    verbose = attr.ib()
 
 
 async def do_send(context: Context, notification: models.Notification):
-    conn = await connection.connect(context.cert, context.server)
+    conn = await connection.connect(
+        context.cert,
+        context.server,
+        logger=get_logger() if context.verbose else None
+    )
     resp_id = await conn.send_notification(
         context.token,
         notification,
-        id=context.apns_id,
+        apns_id=context.apns_id,
         expiration=context.expiration,
         priority=context.priority,
         topic=context.topic,
@@ -60,8 +66,9 @@ def send(context, notification):
 @click.option('--topic', default=None)
 @click.option('--collapse-id', default=None)
 @click.option('--apns-id', default=None)
+@click.option('--verbose', is_flag=True, default=False)
 @click.pass_context
-def main(ctx, token, client_cert_path, prod, alt_port, expiration, immediately, topic, collapse_id, apns_id):
+def main(ctx, token, client_cert_path, prod, alt_port, expiration, immediately, topic, collapse_id, apns_id, verbose):
     ctx.obj = Context(
         token=token,
         cert=client_cert_path,
@@ -70,7 +77,8 @@ def main(ctx, token, client_cert_path, prod, alt_port, expiration, immediately, 
         priority=config.Priority.immediately if immediately else config.Priority.normal,
         topic=topic,
         collapse_id=collapse_id,
-        apns_id=apns_id
+        apns_id=apns_id,
+        verbose=verbose,
     )
 
 
@@ -98,8 +106,8 @@ def simple(ctx, title, body):
 def localized(ctx, title, body, title_args, body_args, badge):
     notification = models.Notification(
         alert=models.Alert(
-            title=models.Localized(title, list(title_args)) if title else title,
             body=models.Localized(body, list(body_args)),
+            title=models.Localized(title, list(title_args)) if title else title,
         ),
         badge=badge,
     )
