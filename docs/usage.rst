@@ -58,3 +58,11 @@ send it a hello world notification like this::
         )
         await connection.send_notification('adevicetoken', notification)
         await connection.close()
+
+
+Command Line Client
+-------------------
+
+For testing, aapns also includes a small command line client to send notifications.
+To use it, you must install it using ``pip install aapns[cli]``. See
+``aapns --help`` for usage information.

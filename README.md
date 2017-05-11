@@ -1,5 +1,8 @@
 # AAPNS
 
+[![CircleCI](https://circleci.com/gh/hde/aapns/tree/master.svg?style=svg)](https://circleci.com/gh/hde/aapns/tree/master)
+[![Documentation Status](https://readthedocs.org/projects/aapns/badge/?version=latest)](http://aapns.readthedocs.io/en/latest/?badge=latest)
+
 Asynchronous Apple Push Notification Service client.
 
 
