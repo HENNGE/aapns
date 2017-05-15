@@ -86,7 +86,7 @@ class APNS(Protocol):
             except:
                 reason = response.body
             exc = errors.get(reason, response_id)
-            logger.criticial('error', exc=exc)
+            logger.critical('error', exc=exc)
             raise exc
         else:
             ascii_response_id = response_id.decode('ascii')
