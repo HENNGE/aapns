@@ -1,4 +1,5 @@
 from asyncio import get_event_loop
+from typing import Dict
 
 import attr
 import click
@@ -7,7 +8,7 @@ from structlog import get_logger
 from . import config, connection, models
 
 
-SERVERS = {
+SERVERS: Dict[bool, Dict[bool, config.Server]] = {
     True: {
         True: config.ProductionAltPort,
         False: config.Production
@@ -32,7 +33,7 @@ class Context:
     verbose = attr.ib()
 
 
-async def do_send(context: Context, notification: models.Notification):
+async def do_send(context: Context, notification: models.Notification) -> str:
     conn = await connection.connect(
         context.cert,
         context.server,
@@ -51,7 +52,7 @@ async def do_send(context: Context, notification: models.Notification):
     return resp_id
 
 
-def send(context, notification):
+def send(context: Context, notification: models.Notification):
     resp_id = get_event_loop().run_until_complete(do_send(context, notification))
     click.echo(resp_id)
 

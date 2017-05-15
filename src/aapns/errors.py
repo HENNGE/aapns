@@ -1,3 +1,6 @@
+from typing import Type, Dict
+
+
 class APNSError(Exception):
     pass
 
@@ -7,7 +10,7 @@ class StreamResetError(APNSError):
 
 
 class ResponseError(APNSError):
-    def __init__(self, reason, apns_id):
+    def __init__(self, reason: str, apns_id: str):
         self.reason = reason
         self.apns_id = apns_id
         super().__init__(reason)
@@ -17,11 +20,11 @@ class UnknownResponseError(ResponseError):
     pass
 
 
-CODES = {}
+CODES: Dict[str, Type[ResponseError]] = {}
 
 
-def create(codename):
-    cls = type(codename, (ResponseError,), {})
+def create(codename: str) -> Type[ResponseError]:
+    cls: Type[ResponseError] = type(codename, (ResponseError,), {})
     CODES[codename] = cls
     return cls
 
@@ -55,5 +58,5 @@ ServiceUnavailable = create('ServiceUnavailable')
 Shutdown = create('Shutdown')
 
 
-def get(reason, apns_id):
+def get(reason: str, apns_id: str) -> ResponseError:
     return CODES.get(reason, UnknownResponseError)(reason, apns_id)

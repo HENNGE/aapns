@@ -1,8 +1,8 @@
 import json
 import os
-from asyncio import get_event_loop, Protocol, Future
-from ssl import create_default_context
-from typing import Optional
+import ssl
+from asyncio import get_event_loop, Protocol, Future, Transport
+from typing import Optional, Tuple, List, Dict, Union
 
 import attr
 from h2.connection import H2Connection
@@ -11,7 +11,7 @@ from h2.events import (
     StreamReset,
 )
 from hyperframe.frame import SettingsFrame
-from structlog import wrap_logger, PrintLogger
+from structlog import wrap_logger, PrintLogger, BoundLogger
 
 from . import errors, config, models
 
@@ -28,13 +28,16 @@ class PendingResponse:
 
 
 class APNS(Protocol):
-    def __init__(self, client_cert_path, server, logger=None):
+    def __init__(self,
+                 client_cert_path: str,
+                 server: config.Server,
+                 logger: Optional[BoundLogger]=None):
         self._logger = logger or wrap_logger(PrintLogger(open(os.devnull, 'w')))
         self._client_cert_path = client_cert_path
         self._server = server
         self._conn = H2Connection()
-        self._transport = None
-        self._responses = {}
+        self._transport: Union[Transport, None] = None
+        self._responses: Dict[int, PendingResponse] = {}
 
     async def send_notification(self,
                                 token: str,
@@ -77,7 +80,7 @@ class APNS(Protocol):
 
         headers = dict(response.headers)
 
-        response_id = headers.get(b'apns-id', b'')
+        response_id: bytes = headers.get(b'apns-id', b'')
         if b':status' not in headers:
             logger.critical('nostatus')
             status = -1
@@ -89,11 +92,11 @@ class APNS(Protocol):
                 reason = json.loads(response.body)['reason']
             except:
                 reason = response.body
-            exc = errors.get(reason, response_id)
+            exc = errors.get(reason, response_id.decode('ascii'))
             logger.critical('error', exc=exc)
             raise exc
         else:
-            ascii_response_id = response_id.decode('ascii')
+            ascii_response_id: str = response_id.decode('ascii')
             logger.debug('apns-id', apns_id=ascii_response_id)
         return ascii_response_id
 
@@ -106,7 +109,7 @@ class APNS(Protocol):
         await self.close()
         return await connect(self._client_cert_path, self._server)
 
-    def connection_made(self, transport):
+    def connection_made(self, transport: Transport):
         self._transport = transport
         self._conn.initiate_connection()
 
@@ -134,7 +137,7 @@ class APNS(Protocol):
         if data:
             self._transport.write(data)
 
-    def handle_response(self, response_headers, stream_id):
+    def handle_response(self, response_headers: List[Tuple[bytes, bytes]], stream_id: int):
         if stream_id in self._responses:
             self._responses[stream_id].logger.debug(
                 'response-headers',
@@ -148,7 +151,7 @@ class APNS(Protocol):
                 headers=response_headers
             )
 
-    def handle_data(self, data, stream_id):
+    def handle_data(self, data: bytes, stream_id: int):
         if stream_id in self._responses:
             self._responses[stream_id].logger.debug(
                 'response-body',
@@ -162,7 +165,7 @@ class APNS(Protocol):
                 data=data
             )
 
-    def end_stream(self, stream_id):
+    def end_stream(self, stream_id: int):
         if stream_id in self._responses:
             response = self._responses.pop(stream_id)
             response.logger.debug('end-stream')
@@ -170,7 +173,7 @@ class APNS(Protocol):
         else:
             self._logger.warning('unexpected-end-stream', stream_id=stream_id)
 
-    def reset_stream(self, stream_id):
+    def reset_stream(self, stream_id: int):
         if stream_id in self._responses:
             response = self._responses.pop(stream_id)
             response.logger.debug('reset-stream')
@@ -182,10 +185,10 @@ class APNS(Protocol):
 async def connect(client_cert_path: str,
                   server: config.Server,
                   *,
-                  ssl_context=None,
-                  logger=None):
+                  ssl_context: Optional[ssl.SSLContext]=None,
+                  logger: Optional[BoundLogger]=None) -> APNS:
     if ssl_context is None:
-        ssl_context = create_default_context()
+        ssl_context: ssl.SSLContext = ssl.create_default_context()
         ssl_context.set_alpn_protocols(['h2'])
         ssl_context.set_npn_protocols(['h2'])
     ssl_context.load_cert_chain(client_cert_path)

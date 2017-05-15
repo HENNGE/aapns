@@ -1,9 +1,10 @@
 import json
+from typing import Dict, Any, Union, List
 
 import attr
 
 
-def str_list(instance, attr, value):
+def str_list(instance: object, attr: attr.Attribute, value: Any) -> None:
     if not isinstance(value, list):
         raise TypeError('Must be list of strings')
     for arg in value:
@@ -17,7 +18,10 @@ class Localized:
     args = attr.ib(default=None, validator=attr.validators.optional(str_list))
 
 
-def maybe_localized(thing, nonloc, lockey, locarg):
+def maybe_localized(thing: Union[str, Localized],
+                    nonloc: str,
+                    lockey: str,
+                    locarg: str) -> Dict[str, Union[str, List[str]]]:
     if isinstance(thing, Localized):
         attr.validate(thing)
         localized = {
@@ -46,7 +50,7 @@ class Alert:
         validator=attr.validators.optional(attr.validators.instance_of(str))
     )
 
-    def get_dict(self):
+    def get_dict(self) -> Dict[str, Any]:
         attr.validate(self)
         alert = {}
         if self.title:
@@ -97,7 +101,7 @@ class Notification:
         validator=attr.validators.optional(attr.validators.instance_of(dict))
     )
 
-    def get_dict(self):
+    def get_dict(self) -> Dict[str, Any]:
         attr.validate(self)
         apns = {
             'alert': self.alert.get_dict()
