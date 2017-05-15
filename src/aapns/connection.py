@@ -69,7 +69,9 @@ class APNS(Protocol):
         self._conn.send_headers(stream_id, request_headers)
         self._conn.send_data(stream_id, request_body, end_stream=True)
         if self._transport is not None:
-            self._transport.write(self._conn.data_to_send())
+            data_to_send = self._conn.data_to_send()
+            if data_to_send:
+                self._transport.write(data_to_send)
         await response.future
         logger.debug('response', headers=response.headers, body=response.body)
 
