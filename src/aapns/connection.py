@@ -68,6 +68,8 @@ class APNS(Protocol):
         logger.debug('request', headers=request_headers, body=request_body)
         self._conn.send_headers(stream_id, request_headers)
         self._conn.send_data(stream_id, request_body, end_stream=True)
+        if self._transport is not None:
+            self._transport.write(self._conn.data_to_send())
         await response.future
         logger.debug('response', headers=response.headers, body=response.body)
 
@@ -91,6 +93,7 @@ class APNS(Protocol):
         else:
             ascii_response_id = response_id.decode('ascii')
             logger.debug('apns-id', apns_id=ascii_response_id)
+        return ascii_response_id
 
     async def close(self):
         self._conn.close_connection()
