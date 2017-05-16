@@ -5,11 +5,17 @@ class APNSError(Exception):
     pass
 
 
+class Disconnected(APNSError):
+    pass
+
+
 class StreamResetError(APNSError):
     pass
 
 
 class ResponseError(APNSError):
+    codename = None
+
     def __init__(self, reason: str, apns_id: str):
         self.reason = reason
         self.apns_id = apns_id
@@ -17,14 +23,14 @@ class ResponseError(APNSError):
 
 
 class UnknownResponseError(ResponseError):
-    pass
+    codename = '!unknown'
 
 
 CODES: Dict[str, Type[ResponseError]] = {}
 
 
 def create(codename: str) -> Type[ResponseError]:
-    cls: Type[ResponseError] = type(codename, (ResponseError,), {})
+    cls: Type[ResponseError] = type(codename, (ResponseError,), {'codename': codename})
     CODES[codename] = cls
     return cls
 

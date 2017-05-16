@@ -60,6 +60,20 @@ send it a hello world notification like this::
         await connection.close()
 
 
+Disconnects and timeouts
+------------------------
+
+If the connection disconnects, an :py:exc:`aapns.errors.Disconnected` exception
+will be raised by :py:meth:`aapns.connection.APNS.send_notification` and you it
+is your responsibility to deal with the consequences. A simple way to handle
+disconnected connections would be to replace your connection with
+:py:meth:`aapns.connection.APNS.reconect` (note that this returns a **new**
+connection) and try sending the notification again.
+
+aapns does not have a mechanism to detect timeouts built in. Instead, use
+:py:func:`asyncio.wait_for`.
+
+
 Command Line Client
 -------------------
 

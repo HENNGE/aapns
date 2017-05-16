@@ -114,6 +114,11 @@ API Reference
 
     Base class for all errors raised by aapns itself.
 
+.. py:exception:: Disconnected
+
+    Error raised by :py:meth:`aapns.connection.APNS.send_notification` if the
+    connection was lost.
+
 .. py:exception:: StreamResetError
 
     Error raised if the HTTP2 stream used to send a notification was reset by APNS.
@@ -127,6 +132,14 @@ API Reference
     Base class for response errors when sending notifications.
 
     See below for concrete instances.
+
+    .. py:attribute:: reason
+
+        The error code from APNS for this exception.
+
+    .. py:attribute:: apns_id
+
+        The APNS ID this error corresponds to.
 
 
 .. py:exception:: BadCollapseId

@@ -2,6 +2,7 @@ import json
 import os
 import ssl
 from asyncio import get_event_loop, Protocol, Future, Transport
+from enum import auto, Enum
 from typing import Optional, Tuple, List, Dict, Union
 
 import attr
@@ -13,6 +14,7 @@ from h2.events import (
 from hyperframe.frame import SettingsFrame
 from structlog import wrap_logger, PrintLogger, BoundLogger
 
+from aapns.errors import Disconnected
 from . import errors, config, models
 
 
@@ -27,6 +29,12 @@ class PendingResponse:
     body = attr.ib(default=b'')
 
 
+class States(Enum):
+    connecting = auto()
+    connected = auto()
+    disconnected = auto()
+
+
 class APNS(Protocol):
     def __init__(self,
                  client_cert_path: str,
@@ -38,6 +46,7 @@ class APNS(Protocol):
         self._conn = H2Connection()
         self._transport: Union[Transport, None] = None
         self._responses: Dict[int, PendingResponse] = {}
+        self.state = States.connecting
 
     async def send_notification(self,
                                 token: str,
@@ -48,6 +57,8 @@ class APNS(Protocol):
                                 priority: config.Priority=config.Priority.normal,
                                 topic: Optional[str]=None,
                                 collapse_id: Optional[str]=None) -> str:
+        if self.state is States.disconnected:
+            raise Disconnected()
         stream_id = self._conn.get_next_available_stream_id()
         logger = self._logger.bind(stream_id=stream_id)
         request_body = notification.encode()
@@ -102,14 +113,18 @@ class APNS(Protocol):
 
     async def close(self):
         self._conn.close_connection()
-        self._transport.write(self._conn.data_to_send())
-        self._transport.close()
+        if self._transport:
+            self._transport.write(self._conn.data_to_send())
+            self._transport.close()
+        self._transport = None
+        self.state = States.disconnected
 
     async def reconnect(self):
         await self.close()
         return await connect(self._client_cert_path, self._server)
 
     def connection_made(self, transport: Transport):
+        self._logger.debug('connected')
         self._transport = transport
         self._conn.initiate_connection()
 
@@ -117,6 +132,14 @@ class APNS(Protocol):
         self._conn.update_settings({SettingsFrame.HEADER_TABLE_SIZE: SIZE})
 
         self._transport.write(self._conn.data_to_send())
+        self.state = States.connected
+
+    def connection_lost(self, exc):
+        self._logger.debug('disconnected')
+        self._transport = None
+        for pending in self._responses.values():
+            pending.future.set_exception(Disconnected())
+        self.state = States.disconnected
 
     def data_received(self, data: bytes):
         events = self._conn.receive_data(data)
