@@ -1,6 +1,65 @@
 API Reference
 =============
 
+
+``aapns.api``
+-------------
+
+
+.. py:module:: aapns.api
+
+.. py:function:: connect(client_cert_path, server, *, ssl_context=None, logger=None, auto_reconnect=False, timeout=None)
+
+    This is a coroutine.
+
+    Connect to APNS. Use this coroutine to create :py:class:`APNS` instances.
+
+    :param str client_cert_path: Path to the client certificate to authenticate with
+    :param server: Server to connect to
+    :type server: :py:class:`aapns.config.Server`
+    :param ssl_context: Optional SSLContext instance to use
+    :type ssl_context: :py:class:`ssl.SSLContext`
+    :param logger: Optional structlog logger to use for logging
+    :type logger: :py:class:`structlog.BoundLogger`
+    :param bool auto_reconnect: Toggle automatic reconnecting.
+    :param int timeout: Optional timeout for connections and requests. If set to ``None``, no timeout will be used.
+    :return: A connected instance of :py:class:`APNS`
+    :rtype: APNS
+
+.. py:class:: APNS
+
+    Main API of aapns. You should not create instances of this class yourself.
+    Use :py:func:`connect` instead.
+
+    .. py:method:: send_notification(token, notification, *, apns_id=None, expiration=None, priority=Priority.normal, topic=None, collapse_id=None):
+
+        This is a coroutine.
+
+        Send a notification to the device registered for the given token. Returns
+        the notification ID.
+
+        :param str token: Device token
+        :param notification: The notification to send
+        :type notification: :py:class:`aapns.models.Notification`
+        :param str apns_id: Optional notification ID. If none is provided, APNS creates one
+        :param int expiration: Optional unix timestamp when the notification should expire
+        :param priority: Priority to use for the notification. See :py:class:`aapns.config.Priority`
+        :type priority: :py:class:`aapns.config.Priority`
+        :param str topic: Optional topic to send the notification to. If your certificate is for more than one topic, you must specify this parameter
+        :param str collapse_id: Optional collapse id for this notification
+        :return: ID of the notification
+        :rtype: str
+        :raises aapns.errors.ResponseError: If there was a problem with the notification
+        :raises aapns.errors.StreamResetError: If the HTTP2 stream was reset by APNS
+
+
+    .. py:method:: close
+
+        This is a coroutine.
+
+        Closes the connection if one is active.
+
+
 ``aapns.config``
 ----------------
 
@@ -43,67 +102,6 @@ API Reference
         To send a notification with normal priority.
 
 
-``aapns.connection``
---------------------
-
-.. py:module:: aapns.connection
-
-.. py:function:: connect(client_cert_path, server, *, ssl_context=None, logger=None)
-
-    This is a coroutine.
-
-    Connect to APNS. Use this coroutine to create :py:class:`APNS` instances.
-
-    :param str client_cert_path: Path to the client certificate to authenticate with
-    :param server: Server to connect to
-    :type server: :py:class:`aapns.config.Server`
-    :param ssl_context: Optional SSLContext instance to use
-    :type ssl_context: :py:class:`ssl.SSLContext`
-    :param logger: Optional structlog logger to use for logging
-    :type logger: :py:class:`structlog.BoundLogger`
-    :return: A connection to APNS
-    :rtype: APNS
-
-.. py:class:: APNS
-
-    Main API of aapns. You should not create instances of this class yourself.
-    Use :py:func:`connect` instead.
-
-    .. py:method:: send_notification(token, notification, *, apns_id=None, expiration=None, priority=Priority.normal, topic=None, collapse_id=None):
-
-        This is a coroutine.
-
-        Send a notification to the device registered for the given token. Returns
-        the notification ID.
-
-        :param str token: Device token
-        :param notification: The notification to send
-        :type notification: :py:class:`aapns.models.Notification`
-        :param str apns_id: Optional notification ID. If none is provided, APNS creates one
-        :param int expiration: Optional unix timestamp when the notification should expire
-        :param priority: Priority to use for the notification. See :py:class:`aapns.config.Priority`
-        :type priority: :py:class:`aapns.config.Priority`
-        :param str topic: Optional topic to send the notification to. If your certificate is for more than one topic, you must specify this parameter
-        :param str collapse_id: Optional collapse id for this notification
-        :return: ID of the notification
-        :rtype: str
-        :raises aapns.errors.ResponseError: If there was a problem with the notification
-        :raises aapns.errors.StreamResetError: If the HTTP2 stream was reset by APNS
-
-
-    .. py:method:: close
-
-        This is a coroutine.
-
-        Closes the connection.
-
-    .. py:method:: reconnect
-
-        This is a coroutine.
-
-        Closes the connection and returns a new one with the same configuration.
-
-
 ``aapns.errors``
 ----------------
 
@@ -116,8 +114,9 @@ API Reference
 
 .. py:exception:: Disconnected
 
-    Error raised by :py:meth:`aapns.connection.APNS.send_notification` if the
-    connection was lost.
+    Error raised by :py:meth:`aapns.api.APNS.send_notification` if the
+    connection was lost and automatic reconnection is disabled or the reconnect
+    failed.
 
 .. py:exception:: StreamResetError
 
