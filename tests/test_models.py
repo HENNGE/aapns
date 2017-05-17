@@ -31,6 +31,11 @@ def test_localize():
     }
 
 
+def test_localized_invalid_args():
+    with pytest.raises(TypeError):
+        models.Localized('foo', [1])
+
+
 def test_full():
     notification = models.Notification(
         alert=models.Alert(

@@ -8,7 +8,7 @@ from structlog import get_logger
 
 from aapns import connect, Notification, Alert
 from aapns.config import Server
-from aapns.errors import Disconnected
+from aapns.errors import Disconnected, BadDeviceToken
 from tests.fake_apns_server import start_fake_apns_server
 from tests.fake_client_cert import create_client_cert
 
@@ -34,6 +34,26 @@ def client_cert_path():
         with open(path, 'wb') as fobj:
             fobj.write(create_client_cert())
         yield path
+
+
+@pytest.fixture(scope='function')
+def client(event_loop, client_cert_path):
+    server = event_loop.run_until_complete(start_fake_apns_server())
+    try:
+        apns = event_loop.run_until_complete(connect(
+            client_cert_path,
+            Server(*server.address),
+            ssl_context=non_verifying_context,
+            auto_reconnect=True,
+            timeout=10,
+            logger=get_logger()
+        ))
+        try:
+            yield apns
+        finally:
+            event_loop.run_until_complete(apns.close())
+    finally:
+        event_loop.run_until_complete(server.stop())
 
 
 async def test_auto_reconnect(auto_close, client_cert_path):
@@ -103,3 +123,8 @@ async def test_no_auto_reconnect(auto_close, client_cert_path):
             await future
         assert not apns.connected
         assert len(server.get_notifications(device_id)) == 1
+
+
+async def test_bad_device_id(client):
+    with pytest.raises(BadDeviceToken):
+        await client.send_notification('does not exist', Notification(Alert('test')))
