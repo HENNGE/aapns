@@ -16,8 +16,7 @@ class APNS:
         self.logger = logger
         self.ssl_context = ssl_context
         self.auto_reconnect = auto_reconnect
-        if timeout is None:
-            self.run_with_timeout = self.run_without_timeout
+        self.run_coroutine = self._run_with_timeout if timeout is None else self._run_with_timeout
         self.timeout = timeout
         self.connection = None
         self.connection_lock = Lock()
@@ -31,7 +30,7 @@ class APNS:
                                 priority: config.Priority=config.Priority.normal,
                                 topic: Optional[str]=None,
                                 collapse_id: Optional[str]=None) -> str:
-        conn = await self.run_with_timeout(self.get_connection())
+        conn = await self.run_coroutine(self.get_connection())
 
         request_body = notification.encode()
         request_headers = [
@@ -52,7 +51,7 @@ class APNS:
         if collapse_id:
             request_headers.append(('apns-collapse-id', collapse_id))
 
-        response = await self.run_with_timeout(conn.request(
+        response = await self.run_coroutine(conn.request(
             headers=request_headers,
             body=request_body,
         ))
@@ -72,7 +71,7 @@ class APNS:
     @classmethod
     async def init_with_connection(cls, client_cert_path, server, logger, ssl_context, *, auto_reconnect=False, timeout=None):
         apns = cls(client_cert_path, server, logger, ssl_context, auto_reconnect=auto_reconnect, timeout=timeout)
-        await apns.run_with_timeout(apns.connect())
+        await apns.run_coroutine(apns.connect())
         return apns
 
     async def close(self):
@@ -87,11 +86,11 @@ class APNS:
             self.connection.state is not connection.States.disconnected
         )
 
-    async def run_with_timeout(self, coro):
+    async def _run_with_timeout(self, coro):
         return await wait_for(coro, self.timeout)
 
     @staticmethod
-    async def run_without_timeout(coro):
+    async def _run_without_timeout(coro):
         return await coro
 
     async def connect(self):
