@@ -2,9 +2,10 @@ version: 2
 jobs:
   build:
     docker:
-      - image: python:3.6
+      - image: python:3.6-alpine
     working_directory: /home/
     steps:
       - checkout
-      - run: pip install . -r tests/requirements.txt
-      - run: pytest --verbose
+      - run: python -m venv /home/virtualenv/
+      - run: /home/virtualenv/bin/pip install . -r tests/requirements.txt
+      - run: /home/virtualenv/bin/pytest --verbose
