@@ -1,6 +1,6 @@
 import json
 import ssl
-from asyncio import get_event_loop, wait_for, Lock
+from asyncio import get_event_loop, wait_for, Lock, sleep
 from typing import Optional
 
 from structlog import BoundLogger
@@ -103,12 +103,17 @@ class APNS:
             ssl=self.ssl_context
         )
 
-    async def get_connection(self):
+    async def get_connection(self) -> connection.APNSProtocol:
         async with self.connection_lock:
             if not self.connected:
                 if not self.auto_reconnect:
                     raise errors.Disconnected()
-                await self.connect()
+                while True:
+                    try:
+                        await self.connect()
+                        break
+                    except ConnectionRefusedError:
+                        await sleep(0.1)
             return self.connection
 
 
