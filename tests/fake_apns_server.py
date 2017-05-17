@@ -21,6 +21,7 @@ from h2.events import RequestReceived, StreamEnded, DataReceived
 from structlog import get_logger
 
 from aapns.errors import BadDeviceToken
+from tests.fake_client_cert import gen_private_key, gen_certificate
 
 
 @attr.s
@@ -150,50 +151,10 @@ class FakeServer:
         return protocol
 
 
-BACKEND = default_backend()
-
-
-def gen_private_key() -> rsa.RSAPrivateKeyWithSerialization:
-    return rsa.generate_private_key(
-        public_exponent=65537,
-        key_size=2048,
-        backend=BACKEND,
-    )
-
-
-def gen_certificate(key: rsa.RSAPrivateKey) -> x509.Certificate:
-    now = datetime.datetime.utcnow()
-    org_units = []
-    return x509.CertificateBuilder().subject_name(
-        x509.Name([
-            x509.NameAttribute(NameOID.COMMON_NAME, 'test.apns'),
-        ])
-    ).issuer_name(
-        x509.Name([
-            x509.NameAttribute(
-                NameOID.COMMON_NAME,
-                'test.apns'
-            )
-        ])
-    ).not_valid_before(
-        now
-    ).not_valid_after(
-        now + datetime.timedelta(seconds=86400)
-    ).serial_number(
-        x509.random_serial_number()
-    ).public_key(
-        key.public_key()
-    ).sign(
-        private_key=key,
-        algorithm=hashes.SHA256(),
-        backend=BACKEND
-    )
-
-
 async def start_fake_apns_server(port=0, database=None):
     database = {} if database is None else database
     private_key = gen_private_key()
-    certificate = gen_certificate(key=private_key)
+    certificate = gen_certificate(private_key, 'server')
     with tempfile.TemporaryDirectory() as workspace:
         key_path = os.path.join(workspace, 'key.pem')
         cert_path = os.path.join(workspace, 'cert.pem')

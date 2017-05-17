@@ -7,4 +7,9 @@ jobs:
     steps:
       - checkout
       - run: /virtualenv/bin/pip install . -r tests/requirements.txt
-      - run: /virtualenv/bin/pytest --verbose
+      - run: /virtualenv/bin/pytest --verbose --junitxml=reports/results/junit.xml --cov=aapns --cov-report=html:reports/coverage/
+      - store_test_results:
+          path: reports/results/
+      - store_artifacts:
+          path: reports/coverage/
+          destination: reports

@@ -1,7 +1,7 @@
 import os
-import socket
 from asyncio import ensure_future
 from ssl import SSLContext
+from tempfile import TemporaryDirectory
 
 import pytest
 from structlog import get_logger
@@ -10,10 +10,10 @@ from aapns import connect, Notification, Alert
 from aapns.config import Server
 from aapns.errors import Disconnected
 from tests.fake_apns_server import start_fake_apns_server
+from tests.fake_client_cert import create_client_cert
 
 pytestmark = pytest.mark.asyncio
 
-CLIENT_CERT_PATH = os.path.join(os.path.dirname(__file__), 'client_cert.pem')
 non_verifying_context = SSLContext()
 
 
@@ -27,13 +27,22 @@ def auto_close(event_loop):
             event_loop.run_until_complete(closeable.close())
 
 
-async def test_auto_reconnect(auto_close):
+@pytest.fixture
+def client_cert_path():
+    with TemporaryDirectory() as workspace:
+        path = os.path.join(workspace, 'cert.pem')
+        with open(path, 'wb') as fobj:
+            fobj.write(create_client_cert())
+        yield path
+
+
+async def test_auto_reconnect(auto_close, client_cert_path):
     database = {}
     async with await start_fake_apns_server(database=database) as server:
         config = Server(*server.address)
         port = server.address[1]
         apns = auto_close(await connect(
-            CLIENT_CERT_PATH,
+            client_cert_path,
             config,
             ssl_context=non_verifying_context,
             auto_reconnect=True,
@@ -62,13 +71,13 @@ async def test_auto_reconnect(auto_close):
     await apns.close()
 
 
-async def test_no_auto_reconnect(auto_close):
+async def test_no_auto_reconnect(auto_close, client_cert_path):
     database = {}
     async with await start_fake_apns_server(database=database) as server:
         config = Server(*server.address)
         port = server.address[1]
         apns = auto_close(await connect(
-            CLIENT_CERT_PATH,
+            client_cert_path,
             config,
             ssl_context=non_verifying_context,
             auto_reconnect=False,
