@@ -1,6 +1,6 @@
 import json
 import ssl
-from asyncio import get_event_loop, wait_for, Lock, sleep
+from asyncio import get_event_loop, wait_for, Lock, sleep, BaseEventLoop
 from typing import Optional
 
 from structlog import BoundLogger
@@ -10,7 +10,7 @@ from . import errors, config, models, connection
 
 
 class APNS:
-    def __init__(self, client_cert_path, server, logger, ssl_context, *, auto_reconnect=False, timeout=None):
+    def __init__(self, client_cert_path, server, logger, ssl_context, *, auto_reconnect=False, timeout=None, loop=None):
         self.client_cert_path = client_cert_path
         self.server = server
         self.logger = logger
@@ -20,6 +20,7 @@ class APNS:
         self.timeout = timeout
         self.connection = None
         self.connection_lock = Lock()
+        self.loop = loop or get_event_loop()
 
     async def send_notification(self,
                                 token: str,
@@ -69,8 +70,8 @@ class APNS:
             return response_id
 
     @classmethod
-    async def init_with_connection(cls, client_cert_path, server, logger, ssl_context, *, auto_reconnect=False, timeout=None):
-        apns = cls(client_cert_path, server, logger, ssl_context, auto_reconnect=auto_reconnect, timeout=timeout)
+    async def init_with_connection(cls, client_cert_path, server, logger, ssl_context, *, auto_reconnect=False, timeout=None, loop=None):
+        apns = cls(client_cert_path, server, logger, ssl_context, auto_reconnect=auto_reconnect, timeout=timeout, loop=loop)
         await apns.run_coroutine(apns.connect())
         return apns
 
@@ -87,7 +88,7 @@ class APNS:
         )
 
     async def _run_with_timeout(self, coro):
-        return await wait_for(coro, self.timeout)
+        return await wait_for(coro, self.timeout, loop=self.loop)
 
     @staticmethod
     async def _run_without_timeout(coro):
@@ -95,7 +96,7 @@ class APNS:
 
     async def connect(self):
         self.connection = connection.APNSProtocol(self.server.host, self.logger)
-        await get_event_loop().create_connection(
+        await self.loop.create_connection(
             lambda: self.connection,
             self.server.host,
             self.server.port,
@@ -122,7 +123,8 @@ async def connect(client_cert_path: str,
                   ssl_context: Optional[ssl.SSLContext]=None,
                   logger: Optional[BoundLogger]=None,
                   auto_reconnect: bool=False,
-                  timeout: Optional[int]=None) -> APNS:
+                  timeout: Optional[int]=None,
+                  loop: Optional[BaseEventLoop]=None) -> APNS:
     if ssl_context is None:
         ssl_context: ssl.SSLContext = ssl.create_default_context()
         ssl_context.set_alpn_protocols(['h2'])
@@ -134,5 +136,6 @@ async def connect(client_cert_path: str,
         ssl_context=ssl_context,
         logger=logger,
         auto_reconnect=auto_reconnect,
-        timeout=timeout
+        timeout=timeout,
+        loop=loop
     )
