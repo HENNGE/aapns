@@ -99,6 +99,7 @@ class APNSProtocol(Protocol):
         self.transport = None
         for pending in self.responses.values():
             pending.future.set_exception(Disconnected())
+        self.responses = {}
         self.state = States.disconnected
 
     def data_received(self, data: bytes):
