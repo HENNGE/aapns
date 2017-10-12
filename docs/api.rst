@@ -22,7 +22,7 @@ API Reference
     :param logger: Optional structlog logger to use for logging
     :type logger: :py:class:`structlog.BoundLogger`
     :param bool auto_reconnect: Toggle automatic reconnecting.
-    :param int timeout: Optional timeout for connections and requests. If set to ``None``, no timeout will be used.
+    :param float timeout: Optional timeout for connections and requests. If set to ``None``, no timeout will be used.
     :return: A connected instance of :py:class:`APNS`
     :rtype: APNS
 
@@ -51,6 +51,8 @@ API Reference
         :rtype: str
         :raises aapns.errors.ResponseError: If there was a problem with the notification
         :raises aapns.errors.StreamResetError: If the HTTP2 stream was reset by APNS
+        :raises asyncio.TimeoutError: If timeout is used and the request timed out.
+        :raises aapns.errors.Disconnected: If auto reconnect is disabled and the connection was lost, or the connection was lost during the request.
 
 
     .. py:method:: close

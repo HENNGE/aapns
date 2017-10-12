@@ -7,6 +7,8 @@ import uuid
 from asyncio import Protocol
 
 import asyncio
+from functools import wraps
+
 import attr
 import datetime
 
@@ -66,24 +68,38 @@ class Request:
             ], b'')
 
 
+def coroify(coro):
+    @wraps(coro)
+    def func(self, *args, **kwargs):
+        task = asyncio.ensure_future(coro(self, *args, **kwargs))
+        self.pending.append(task)
+        task.add_done_callback(lambda *args: self.pending.remove(task))
+    return func
+
+
 class HTTP2Protocol(Protocol):
     def __init__(self, server):
         self.conn = H2Connection(H2Configuration(client_side=False))
         self.requests = {}
         self.server = server
         self.transport = None
+        self.pending = []
 
-    def connection_made(self, transport):
+    @coroify
+    async def connection_made(self, transport):
         self.server.logger.info('connection-made', server=self.server)
         self.transport = transport
         self.conn.initiate_connection()
+        await asyncio.sleep(self.server.lag)
         self.transport.write(self.conn.data_to_send())
 
     def connection_lost(self, exc):
         self.server.logger.info('connection-lost', protocol=self, server=self.server, exc=exc)
         self.server.connections.remove(self)
 
-    def data_received(self, data):
+    @coroify
+    async def data_received(self, data):
+        await asyncio.sleep(self.server.lag)
         events = self.conn.receive_data(data)
         for event in events:
             if isinstance(event, RequestReceived):
@@ -110,14 +126,16 @@ class HTTP2Protocol(Protocol):
             self.conn.send_data(stream_id, response.body)
         self.conn.end_stream(stream_id)
 
-    def close(self):
+    async def close(self):
         if self.transport is not None:
             self.transport.close()
+        await asyncio.gather(*self.pending)
 
 
 @attr.s
 class FakeServer:
     devices = attr.ib()
+    lag = attr.ib(default=0)
     server = attr.ib(default=None)
     address = attr.ib(default=None)
     logger = attr.ib(default=attr.Factory(get_logger))
@@ -132,7 +150,7 @@ class FakeServer:
     async def stop(self):
         self.logger.msg('stopping', server=self.server)
         for connection in self.connections:
-            connection.close()
+            await connection.close()
         self.server.close()
         await self.server.wait_closed()
         self.logger.msg('stopped', server=self.server)
@@ -151,7 +169,7 @@ class FakeServer:
         return protocol
 
 
-async def start_fake_apns_server(port=0, database=None):
+async def start_fake_apns_server(port=0, database=None, lag=0):
     database = {} if database is None else database
     private_key = gen_private_key()
     certificate = gen_certificate(private_key, 'server')
@@ -176,7 +194,7 @@ async def start_fake_apns_server(port=0, database=None):
         ssl_context.load_cert_chain(certfile=cert_path, keyfile=key_path)
         ssl_context.set_alpn_protocols(["h2"])
 
-        fake_server = FakeServer(database)
+        fake_server = FakeServer(database, lag)
 
         loop = asyncio.get_event_loop()
         server = await loop.create_server(
