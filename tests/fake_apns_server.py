@@ -10,13 +10,9 @@ import asyncio
 from functools import wraps
 
 import attr
-import datetime
 
-from cryptography import x509
-from cryptography.hazmat.backends import default_backend
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import rsa
-from cryptography.x509 import NameOID
+from asyncio_extras import async_contextmanager
+from cryptography.hazmat.primitives import serialization
 from h2.config import H2Configuration
 from h2.connection import H2Connection
 from h2.events import RequestReceived, StreamEnded, DataReceived
@@ -141,12 +137,6 @@ class FakeServer:
     logger = attr.ib(default=attr.Factory(get_logger))
     connections = attr.ib(default=attr.Factory(list))
 
-    async def __aenter__(self):
-        return self
-
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        await self.stop()
-
     async def stop(self):
         self.logger.msg('stopping', server=self.server)
         for connection in self.connections:
@@ -169,6 +159,7 @@ class FakeServer:
         return protocol
 
 
+@async_contextmanager
 async def start_fake_apns_server(port=0, database=None, lag=0):
     database = {} if database is None else database
     private_key = gen_private_key()
@@ -205,7 +196,10 @@ async def start_fake_apns_server(port=0, database=None, lag=0):
         )
         fake_server.address = server.sockets[0].getsockname()
         fake_server.server = server
-        return fake_server
+        try:
+            yield fake_server
+        finally:
+            await fake_server.stop()
 
 
 def main():

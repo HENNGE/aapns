@@ -68,7 +68,7 @@ class APNSProtocol(Protocol):
         await pending.future
         return pending.to_response()
 
-    async def close(self):
+    def close(self):
         self.conn.close_connection()
         if self.transport:
             self.transport.write(self.conn.data_to_send())
