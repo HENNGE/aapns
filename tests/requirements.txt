@@ -1,3 +1,4 @@
 pytest-asyncio
 cryptography
 pytest-cov
+asyncio-extras
