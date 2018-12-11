@@ -215,7 +215,10 @@ def main():
             while True:
                 await asyncio.sleep(1)
 
-    asyncio.get_event_loop().run_until_complete(helper())
+    try:
+        asyncio.get_event_loop().run_until_complete(helper())
+    except KeyboardInterrupt:
+        return
 
 
 if __name__ == '__main__':
