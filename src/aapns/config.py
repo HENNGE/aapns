@@ -10,9 +10,9 @@ class Server:
 
 
 Production = Server('api.push.apple.com', 443)
-ProductionAltPort = attr.assoc(Production, port=2197)
+ProductionAltPort = attr.evolve(Production, port=2197)
 Development = Server('api.development.push.apple.com', 443)
-DevelopmentAltPort = attr.assoc(Development, port=2197)
+DevelopmentAltPort = attr.evolve(Development, port=2197)
 
 
 class Priority(Enum):
