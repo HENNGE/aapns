@@ -72,17 +72,10 @@ async def test_auto_reconnect(auto_close, client_cert_path):
         assert len(server.get_notifications(device_id)) == 1
 
     with pytest.raises(Disconnected):
-        await apns.send_notification(
-            device_id,
-            Notification(Alert('test2'))
-        )
+        await apns.send_notification(device_id, Notification(Alert('test2')))
 
-    future = ensure_future(apns.send_notification(
-        device_id,
-        Notification(Alert('test3'))
-    ))
     async with start_fake_apns_server(port, database) as server:
-        await future
+        await apns.send_notification(device_id, Notification(Alert('test3')))
         assert len(server.get_notifications(device_id)) == 2
     await apns.close()
 
