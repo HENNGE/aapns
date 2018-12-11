@@ -5,7 +5,7 @@ import attr
 import click
 from structlog import get_logger
 
-from . import config, connection, models
+from . import config, connect, models
 
 
 SERVERS: Dict[bool, Dict[bool, config.Server]] = {
@@ -34,7 +34,7 @@ class Context:
 
 
 async def do_send(context: Context, notification: models.Notification) -> str:
-    conn = await connection.connect(
+    conn = await connect(
         context.cert,
         context.server,
         logger=get_logger() if context.verbose else None
