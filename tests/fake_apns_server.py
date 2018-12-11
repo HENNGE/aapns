@@ -11,7 +11,11 @@ from functools import wraps
 
 import attr
 
-from asyncio_extras import async_contextmanager
+try:
+    from contextlib import asynccontextmanager
+except ImportError:
+    from asyncio_extras import async_contextmanager as asynccontextmanager
+
 from cryptography.hazmat.primitives import serialization
 from h2.config import H2Configuration
 from h2.connection import H2Connection
@@ -159,7 +163,7 @@ class FakeServer:
         return protocol
 
 
-@async_contextmanager
+@asynccontextmanager
 async def start_fake_apns_server(port=0, database=None, lag=0):
     database = {} if database is None else database
     private_key = gen_private_key()
@@ -203,16 +207,15 @@ async def start_fake_apns_server(port=0, database=None, lag=0):
 
 
 def main():
-    loop = asyncio.get_event_loop()
-    server = loop.run_until_complete(start_fake_apns_server())
-    device_id = server.create_device()
-    print(f'Serving on {server.address}')
-    print(f'Device ID: {device_id}')
-    try:
-        loop.run_forever()
-    except KeyboardInterrupt:
-        print('Stopping')
-        loop.run_until_complete(server.stop())
+    async def helper():
+        async with start_fake_apns_server() as server:
+            device_id = server.create_device()
+            print(f'Serving on {server.address}')
+            print(f'Device ID: {device_id}')
+            while True:
+                await asyncio.sleep(1)
+
+    asyncio.get_event_loop().run_until_complete(helper())
 
 
 if __name__ == '__main__':
