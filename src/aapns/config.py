@@ -9,9 +9,9 @@ class Server:
     port = attr.ib()
 
 
-Production = Server('api.push.apple.com', 443)
+Production = Server("api.push.apple.com", 443)
 ProductionAltPort = attr.evolve(Production, port=2197)
-Development = Server('api.development.push.apple.com', 443)
+Development = Server("api.development.push.apple.com", 443)
 DevelopmentAltPort = attr.evolve(Development, port=2197)
 
 

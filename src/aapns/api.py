@@ -38,15 +38,13 @@ class Connector:
             if not self.do_connect:
                 raise errors.Disconnected()
             self.connection = APNSProtocol(
-                self.server.host,
-                self.logger,
-                self.clear_connection
+                self.server.host, self.logger, self.clear_connection
             )
             await loop.create_connection(
                 lambda: self.connection,
                 self.server.host,
                 self.server.port,
-                ssl=self.ssl_context
+                ssl=self.ssl_context,
             )
         return self.connection
 
@@ -65,42 +63,44 @@ class Connector:
             self.connection.close()
 
 
-def encode_request(*,
-                   server: config.Server,
-                   token: str,
-                   notification: models.Notification,
-                   apns_id: Optional[str]=None,
-                   expiration: Optional[int]=None,
-                   priority: config.Priority=config.Priority.normal,
-                   topic: Optional[str]=None,
-                   collapse_id: Optional[str]=None) -> Tuple[Headers, bytes]:
+def encode_request(
+    *,
+    server: config.Server,
+    token: str,
+    notification: models.Notification,
+    apns_id: Optional[str] = None,
+    expiration: Optional[int] = None,
+    priority: config.Priority = config.Priority.normal,
+    topic: Optional[str] = None,
+    collapse_id: Optional[str] = None,
+) -> Tuple[Headers, bytes]:
     request_body = notification.encode()
     request_headers = [
-        (':method', 'POST'),
-        (':authority', server.host),
-        (':scheme', 'https'),
-        (':path', f'/3/device/{token}'),
-        ('content-length', str(len(request_body))),
-        ('apns-priority', str(priority.value)),
+        (":method", "POST"),
+        (":authority", server.host),
+        (":scheme", "https"),
+        (":path", f"/3/device/{token}"),
+        ("content-length", str(len(request_body))),
+        ("apns-priority", str(priority.value)),
     ]
 
     if apns_id:
-        request_headers.append(('apns-id', apns_id))
+        request_headers.append(("apns-id", apns_id))
     if expiration:
-        request_headers.append(('apns-expiration', str(expiration)))
+        request_headers.append(("apns-expiration", str(expiration)))
     if topic:
-        request_headers.append(('apns-topic', topic))
+        request_headers.append(("apns-topic", topic))
     if collapse_id:
-        request_headers.append(('apns-collapse-id', collapse_id))
+        request_headers.append(("apns-collapse-id", collapse_id))
     return request_headers, request_body
 
 
 def handle_response(response: connection.Response) -> str:
-    response_id = response.headers.get('apns-id', '')
+    response_id = response.headers.get("apns-id", "")
 
     if response.status != 200:
         try:
-            reason = json.loads(response.body)['reason']
+            reason = json.loads(response.body)["reason"]
         except:
             reason = response.body
         exc = errors.get(reason, response_id)
@@ -113,6 +113,7 @@ def ensure_task(coro: Coroutine) -> Coroutine:
     @wraps(coro)
     async def wrapper(*args, **kwargs):
         return await asyncio.get_event_loop().create_task(coro(*args, **kwargs))
+
     return wrapper
 
 
@@ -122,15 +123,17 @@ class APNS:
     server: config.Server = attr.ib()
 
     @ensure_task
-    async def send_notification(self,
-                                token: str,
-                                notification: models.Notification,
-                                *,
-                                apns_id: Optional[str]=None,
-                                expiration: Optional[int]=None,
-                                priority: config.Priority=config.Priority.normal,
-                                topic: Optional[str]=None,
-                                collapse_id: Optional[str]=None) -> str:
+    async def send_notification(
+        self,
+        token: str,
+        notification: models.Notification,
+        *,
+        apns_id: Optional[str] = None,
+        expiration: Optional[int] = None,
+        priority: config.Priority = config.Priority.normal,
+        topic: Optional[str] = None,
+        collapse_id: Optional[str] = None,
+    ) -> str:
         request_headers, request_body = encode_request(
             token=token,
             notification=notification,
@@ -143,10 +146,7 @@ class APNS:
         )
 
         async with self.connector as conn:
-            response = await conn.request(
-                headers=request_headers,
-                body=request_body,
-            )
+            response = await conn.request(headers=request_headers, body=request_body)
 
         return handle_response(response)
 
@@ -154,18 +154,20 @@ class APNS:
         self.connector.close()
 
 
-async def connect(client_cert_path: str,
-                  server: config.Server,
-                  *,
-                  ssl_context: Optional[ssl.SSLContext]=None,
-                  logger: Optional[BoundLogger]=None,
-                  auto_reconnect: bool=False,
-                  timeout: Optional[float]=None) -> APNS:
+async def connect(
+    client_cert_path: str,
+    server: config.Server,
+    *,
+    ssl_context: Optional[ssl.SSLContext] = None,
+    logger: Optional[BoundLogger] = None,
+    auto_reconnect: bool = False,
+    timeout: Optional[float] = None,
+) -> APNS:
     if ssl_context is None:
         ssl_context: ssl.SSLContext = ssl.create_default_context()
-        ssl_context.set_alpn_protocols(['h2'])
+        ssl_context.set_alpn_protocols(["h2"])
         try:
-            ssl_context.set_npn_protocols(['h2'])
+            ssl_context.set_npn_protocols(["h2"])
         except AttributeError:
             pass
     ssl_context.load_cert_chain(client_cert_path)
