@@ -11,4 +11,3 @@ def pytest_pyfunc_call(pyfuncitem):
         for record in records:
             message = str(record.message)
             assert NEVER_AWAITED_RE.search(message) is None, message
-

@@ -35,37 +35,35 @@ class Response:
 @attr.s
 class Request:
     headers = attr.ib()
-    body = attr.ib(default=b'', repr=False)
+    body = attr.ib(default=b"", repr=False)
 
     def handle(self, server):
         headers = dict(self.headers)
-        if headers[b':method'] != b'POST':
-            return Response([
-                (b':status', b'405'),
-                (b'content-length', b'0'),
-            ])
-        apns_id = headers.get(b'apns-id', str(uuid.uuid4()).upper())
-        token = headers[b':path'][len(b'/3/device/'):].decode('ascii')
+        if headers[b":method"] != b"POST":
+            return Response([(b":status", b"405"), (b"content-length", b"0")])
+        apns_id = headers.get(b"apns-id", str(uuid.uuid4()).upper())
+        token = headers[b":path"][len(b"/3/device/") :].decode("ascii")
         payload = json.loads(self.body)
         if token not in server.devices:
-            data = json.dumps({
-                'apns-id': apns_id,
-                'reason': BadDeviceToken.codename
-            })
-            return Response([
-                (b':status', b'400'),
-                (b'content-length', str(len(data)).encode('ascii'))
-            ], data.encode('utf-8'))
+            data = json.dumps({"apns-id": apns_id, "reason": BadDeviceToken.codename})
+            return Response(
+                [
+                    (b":status", b"400"),
+                    (b"content-length", str(len(data)).encode("ascii")),
+                ],
+                data.encode("utf-8"),
+            )
         else:
             server.devices[token].append(payload)
-            data = json.dumps({
-                'apns-id': apns_id,
-            })
-            return Response([
-                (b':status', b'200'),
-                (b'apns-id', apns_id.encode('ascii')),
-                (b'content-length', b'0')
-            ], b'')
+            data = json.dumps({"apns-id": apns_id})
+            return Response(
+                [
+                    (b":status", b"200"),
+                    (b"apns-id", apns_id.encode("ascii")),
+                    (b"content-length", b"0"),
+                ],
+                b"",
+            )
 
 
 def coroify(coro):
@@ -74,6 +72,7 @@ def coroify(coro):
         task = asyncio.ensure_future(coro(self, *args, **kwargs))
         self.pending.append(task)
         task.add_done_callback(lambda *args: self.pending.remove(task))
+
     return func
 
 
@@ -87,14 +86,16 @@ class HTTP2Protocol(Protocol):
 
     @coroify
     async def connection_made(self, transport):
-        self.server.logger.info('connection-made', server=self.server)
+        self.server.logger.info("connection-made", server=self.server)
         self.transport = transport
         self.conn.initiate_connection()
         await asyncio.sleep(self.server.lag)
         self.transport.write(self.conn.data_to_send())
 
     def connection_lost(self, exc):
-        self.server.logger.info('connection-lost', protocol=self, server=self.server, exc=exc)
+        self.server.logger.info(
+            "connection-lost", protocol=self, server=self.server, exc=exc
+        )
         self.server.connections.remove(self)
 
     @coroify
@@ -142,12 +143,12 @@ class FakeServer:
     connections = attr.ib(default=attr.Factory(list))
 
     async def stop(self):
-        self.logger.msg('stopping', server=self.server)
+        self.logger.msg("stopping", server=self.server)
         for connection in self.connections:
             await connection.close()
         self.server.close()
         await self.server.wait_closed()
-        self.logger.msg('stopped', server=self.server)
+        self.logger.msg("stopped", server=self.server)
 
     def create_device(self):
         device_id = secrets.token_hex(32)
@@ -167,11 +168,11 @@ class FakeServer:
 async def start_fake_apns_server(port=0, database=None, lag=0):
     database = {} if database is None else database
     private_key = gen_private_key()
-    certificate = gen_certificate(private_key, 'server')
+    certificate = gen_certificate(private_key, "server")
     with tempfile.TemporaryDirectory() as workspace:
-        key_path = os.path.join(workspace, 'key.pem')
-        cert_path = os.path.join(workspace, 'cert.pem')
-        with open(key_path, 'wb') as fobj:
+        key_path = os.path.join(workspace, "key.pem")
+        cert_path = os.path.join(workspace, "cert.pem")
+        with open(key_path, "wb") as fobj:
             fobj.write(
                 private_key.private_bytes(
                     encoding=serialization.Encoding.PEM,
@@ -179,12 +180,8 @@ async def start_fake_apns_server(port=0, database=None, lag=0):
                     encryption_algorithm=serialization.NoEncryption(),
                 )
             )
-        with open(cert_path, 'wb') as fobj:
-            fobj.write(
-                certificate.public_bytes(
-                    encoding=serialization.Encoding.PEM,
-                )
-            )
+        with open(cert_path, "wb") as fobj:
+            fobj.write(certificate.public_bytes(encoding=serialization.Encoding.PEM))
         ssl_context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
         ssl_context.load_cert_chain(certfile=cert_path, keyfile=key_path)
         ssl_context.set_alpn_protocols(["h2"])
@@ -193,10 +190,7 @@ async def start_fake_apns_server(port=0, database=None, lag=0):
 
         loop = asyncio.get_event_loop()
         server = await loop.create_server(
-            fake_server.create_protocol,
-            '127.0.0.1',
-            port,
-            ssl=ssl_context
+            fake_server.create_protocol, "127.0.0.1", port, ssl=ssl_context
         )
         fake_server.address = server.sockets[0].getsockname()
         fake_server.server = server
@@ -210,8 +204,8 @@ def main():
     async def helper():
         async with start_fake_apns_server() as server:
             device_id = server.create_device()
-            print(f'Serving on {server.address}')
-            print(f'Device ID: {device_id}')
+            print(f"Serving on {server.address}")
+            print(f"Device ID: {device_id}")
             while True:
                 await asyncio.sleep(1)
 
@@ -221,5 +215,5 @@ def main():
         return
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

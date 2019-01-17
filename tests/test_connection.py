@@ -31,8 +31,8 @@ async def auto_close(event_loop):
 @pytest.fixture
 def client_cert_path():
     with TemporaryDirectory() as workspace:
-        path = os.path.join(workspace, 'cert.pem')
-        with open(path, 'wb') as fobj:
+        path = os.path.join(workspace, "cert.pem")
+        with open(path, "wb") as fobj:
             fobj.write(create_client_cert())
         yield path
 
@@ -46,7 +46,7 @@ async def client(client_cert_path):
             ssl_context=non_verifying_context,
             auto_reconnect=True,
             timeout=10,
-            logger=get_logger()
+            logger=get_logger(),
         )
         try:
             yield apns
@@ -59,23 +59,25 @@ async def test_auto_reconnect(auto_close, client_cert_path):
     async with start_fake_apns_server(database=database) as server:
         config = Server(*server.address)
         port = server.address[1]
-        apns = auto_close(await connect(
-            client_cert_path,
-            config,
-            ssl_context=non_verifying_context,
-            auto_reconnect=True,
-            timeout=10,
-            logger=get_logger()
-        ))
+        apns = auto_close(
+            await connect(
+                client_cert_path,
+                config,
+                ssl_context=non_verifying_context,
+                auto_reconnect=True,
+                timeout=10,
+                logger=get_logger(),
+            )
+        )
         device_id = server.create_device()
-        await apns.send_notification(device_id, Notification(Alert('test1')))
+        await apns.send_notification(device_id, Notification(Alert("test1")))
         assert len(server.get_notifications(device_id)) == 1
 
     with pytest.raises(Disconnected):
-        await apns.send_notification(device_id, Notification(Alert('test2')))
+        await apns.send_notification(device_id, Notification(Alert("test2")))
 
     async with start_fake_apns_server(port, database) as server:
-        await apns.send_notification(device_id, Notification(Alert('test3')))
+        await apns.send_notification(device_id, Notification(Alert("test3")))
         assert len(server.get_notifications(device_id)) == 2
     await apns.close()
 
@@ -85,26 +87,24 @@ async def test_no_auto_reconnect(auto_close, client_cert_path):
     async with start_fake_apns_server(database=database) as server:
         config = Server(*server.address)
         port = server.address[1]
-        apns = auto_close(await connect(
-            client_cert_path,
-            config,
-            ssl_context=non_verifying_context,
-            auto_reconnect=False,
-            timeout=10
-        ))
+        apns = auto_close(
+            await connect(
+                client_cert_path,
+                config,
+                ssl_context=non_verifying_context,
+                auto_reconnect=False,
+                timeout=10,
+            )
+        )
         device_id = server.create_device()
-        await apns.send_notification(device_id, Notification(Alert('test1')))
+        await apns.send_notification(device_id, Notification(Alert("test1")))
         assert len(server.get_notifications(device_id)) == 1
 
     with pytest.raises(Disconnected):
-        await apns.send_notification(
-            device_id,
-            Notification(Alert('test2'))
-        )
+        await apns.send_notification(device_id, Notification(Alert("test2")))
 
-    future = ensure_future(apns.send_notification(
-        device_id,
-        Notification(Alert('test3')))
+    future = ensure_future(
+        apns.send_notification(device_id, Notification(Alert("test3")))
     )
     async with start_fake_apns_server(port, database) as server:
         with pytest.raises(Disconnected):
@@ -116,18 +116,20 @@ async def test_slow_server(auto_close, client_cert_path):
     database = {}
     async with start_fake_apns_server(database=database, lag=0.5) as server:
         config = Server(*server.address)
-        apns = auto_close(await connect(
-            client_cert_path,
-            config,
-            ssl_context=non_verifying_context,
-            auto_reconnect=False,
-            timeout=0.1
-        ))
+        apns = auto_close(
+            await connect(
+                client_cert_path,
+                config,
+                ssl_context=non_verifying_context,
+                auto_reconnect=False,
+                timeout=0.1,
+            )
+        )
         device_id = server.create_device()
         with pytest.raises(asyncio.TimeoutError):
-            await apns.send_notification(device_id, Notification(Alert('test1')))
+            await apns.send_notification(device_id, Notification(Alert("test1")))
 
 
 async def test_bad_device_id(client):
     with pytest.raises(BadDeviceToken):
-        await client.send_notification('does not exist', Notification(Alert('test')))
+        await client.send_notification("does not exist", Notification(Alert("test")))
