@@ -5,7 +5,7 @@ with open(os.path.relpath(f"{__file__}/../README.md")) as f:
     readme = f.read()
 
 setup(
-    version="19.1",
+    version="19.2",
     name="aapns",
     package_dir={"": "src"},
     packages=find_packages(where="src"),
