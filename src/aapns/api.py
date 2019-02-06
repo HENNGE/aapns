@@ -168,7 +168,7 @@ async def connect(
         ssl_context.set_alpn_protocols(["h2"])
         try:
             ssl_context.set_npn_protocols(["h2"])
-        except AttributeError:
+        except (AttributeError, NotImplementedError):
             pass
     ssl_context.load_cert_chain(client_cert_path)
     connector = Connector(
