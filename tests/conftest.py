@@ -1,5 +1,6 @@
-import pytest
 import re
+
+import pytest
 
 NEVER_AWAITED_RE = re.compile(r"coroutine '([^']+)' was never awaited", re.M)
 

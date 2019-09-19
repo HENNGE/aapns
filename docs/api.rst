@@ -8,28 +8,22 @@ API Reference
 
 .. py:module:: aapns.api
 
-.. py:function:: connect(client_cert_path, server, *, ssl_context=None, logger=None, auto_reconnect=False, timeout=None)
+.. py:function:: create_client(client_cert_path, server, *, logger=None, timeout=None)
 
-    This is a coroutine.
-
-    Connect to APNS. Use this coroutine to create :py:class:`APNS` instances.
+    This is a coroutine. Creates an APNS client.
 
     :param str client_cert_path: Path to the client certificate to authenticate with
     :param server: Server to connect to
     :type server: :py:class:`aapns.config.Server`
-    :param ssl_context: Optional SSLContext instance to use
-    :type ssl_context: :py:class:`ssl.SSLContext`
     :param logger: Optional structlog logger to use for logging
     :type logger: :py:class:`structlog.BoundLogger`
-    :param bool auto_reconnect: Toggle automatic reconnecting.
     :param float timeout: Optional timeout for connections and requests. If set to ``None``, no timeout will be used.
-    :return: A connected instance of :py:class:`APNS`
-    :rtype: APNS
+    :return: An instance of :py:class:`APNS`
+    :rtype: :py:class:`APNS`
 
 .. py:class:: APNS
 
-    Main API of aapns. You should not create instances of this class yourself.
-    Use :py:func:`connect` instead.
+    Main API of aapns. You should not instantiate it directly but rather use :py:func:`create_client` instead.
 
     .. py:method:: send_notification(token, notification, *, apns_id=None, expiration=None, priority=Priority.normal, topic=None, collapse_id=None):
 
@@ -50,16 +44,10 @@ API Reference
         :return: ID of the notification
         :rtype: str
         :raises aapns.errors.ResponseError: If there was a problem with the notification
-        :raises aapns.errors.StreamResetError: If the HTTP2 stream was reset by APNS
-        :raises asyncio.TimeoutError: If timeout is used and the request timed out.
-        :raises aapns.errors.Disconnected: If auto reconnect is disabled and the connection was lost, or the connection was lost during the request.
-
 
     .. py:method:: close
 
-        This is a coroutine.
-
-        Closes the connection if one is active.
+        This is a coroutine. Cleans up the client and closes any open connections.
 
 
 ``aapns.config``

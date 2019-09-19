@@ -1,0 +1,23 @@
+on: push
+name: "Main Workflow"
+jobs:
+  black:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@master
+      - name: run
+        uses: lgeiger/black-action@master
+        with:
+          args: src tests --check
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@master
+      - name: install
+        uses: abatilo/actions-poetry@master
+        with:
+          args: install
+      - name: run
+        uses: abatilo/actions-poetry@master
+        with:
+          args: run pytest

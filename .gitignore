@@ -6,3 +6,6 @@ __pycache__
 /docs/_build/
 /build/
 /reports/
+!.github
+!.pre-commit-config.yaml
+poetry.lock

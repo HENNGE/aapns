@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 import secrets
@@ -5,25 +6,17 @@ import ssl
 import tempfile
 import uuid
 from asyncio import Protocol
-
-import asyncio
+from contextlib import asynccontextmanager
 from functools import wraps
 
 import attr
-
-try:
-    from contextlib import asynccontextmanager
-except ImportError:
-    from asyncio_extras import async_contextmanager as asynccontextmanager
-
+from aapns.errors import BadDeviceToken
 from cryptography.hazmat.primitives import serialization
 from h2.config import H2Configuration
 from h2.connection import H2Connection
-from h2.events import RequestReceived, StreamEnded, DataReceived
+from h2.events import DataReceived, RequestReceived, StreamEnded
 from structlog import get_logger
-
-from aapns.errors import BadDeviceToken
-from tests.fake_client_cert import gen_private_key, gen_certificate
+from tests.fake_client_cert import gen_certificate, gen_private_key
 
 
 @attr.s
