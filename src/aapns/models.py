@@ -1,4 +1,5 @@
 import json
+from enum import Enum, unique
 from typing import *
 
 import attr
@@ -68,9 +69,18 @@ class Alert:
         return alert
 
 
+@unique
+class PushType(Enum):
+    alert = "alert"
+    background = "background"
+
+
 @attr.s
 class Notification:
     alert: Alert = attr.ib(validator=attr.validators.instance_of(Alert))
+    push_type: PushType = attr.ib(
+        default=PushType.alert, validator=attr.validators.instance_of(PushType)
+    )
     badge: Optional[int] = attr.ib(
         default=None,
         validator=attr.validators.optional(attr.validators.instance_of(int)),
