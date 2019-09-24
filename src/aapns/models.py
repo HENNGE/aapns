@@ -37,11 +37,11 @@ def maybe_localized(
 @attr.s
 class Alert:
     body: Union[str, Localized] = attr.ib(
-        validator=instance_of_validator(str, Localized)
+        validator=instance_of_validator((str, Localized))
     )
     title: Optional[Union[str, Localized]] = attr.ib(
         default=None,
-        validator=attr.validators.optional(instance_of_validator(str, Localized)),
+        validator=attr.validators.optional(instance_of_validator((str, Localized))),
     )
     action_loc_key: Optional[str] = attr.ib(
         default=None,
