@@ -1,4 +1,4 @@
-from typing import Type, Dict
+from typing import Dict, Type
 
 
 class APNSError(Exception):
@@ -14,7 +14,7 @@ class StreamResetError(APNSError):
 
 
 class ResponseError(APNSError):
-    codename = None
+    codename: str
 
     def __init__(self, reason: str, apns_id: str):
         self.reason = reason

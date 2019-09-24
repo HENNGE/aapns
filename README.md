@@ -1,6 +1,7 @@
 # AAPNS
 
-[![CircleCI](https://circleci.com/gh/HDE/aapns/tree/master.svg?style=svg)](https://circleci.com/gh/HDE/aapns/tree/master)
+![Build](https://github.com/hennge/aapns/workflows/Main/badge.svg
+)
 [![Documentation Status](https://readthedocs.org/projects/aapns/badge/?version=latest)](http://aapns.readthedocs.io/en/latest/?badge=latest)
 
 Asynchronous Apple Push Notification Service client.
@@ -10,12 +11,13 @@ Asynchronous Apple Push Notification Service client.
 
 
 ```python
-from aapns import connect, Notification, Alert, Production, Localized
-from aapns.config import Priority
+from aapns.api import create_client
+from aapns.config import Priority, Production
+from aapns.models import Notification, Alert, Localized
 
 async def send_hello_world():
-    connection = await connect('/path/to/push/cert.pem', Production)
-    apns_id = await connection.send_notification(
+    client = await create_client('/path/to/push/cert.pem', Production)
+    apns_id = await client.send_notification(
         'my-device-token',
         Notification(
             alert=Alert(
@@ -28,6 +30,6 @@ async def send_hello_world():
         ),
         priority=Priority.immediately
     )
-    print(f'Sent push notification with ID {apns_id}')'
-    await connection.close()
+    print(f'Sent push notification with ID {apns_id}')
+    await client.close()
 ```

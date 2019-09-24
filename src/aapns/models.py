@@ -1,29 +1,32 @@
 import json
-from typing import Dict, Any, Union, List
+from typing import *
 
 import attr
 
-
-def str_list(instance: object, attr: attr.Attribute, value: Any) -> None:
-    if not isinstance(value, list):
-        raise TypeError("Must be list of strings")
-    for arg in value:
-        if not isinstance(arg, str):
-            raise TypeError("Must be list of strings")
+from .typing_workarounds import (
+    instance_of_validator,
+    optional_str_dict_validator,
+    optional_str_list_validator,
+)
 
 
 @attr.s
 class Localized:
-    key = attr.ib(validator=attr.validators.instance_of(str))
-    args = attr.ib(default=None, validator=attr.validators.optional(str_list))
+    key: str = attr.ib(validator=attr.validators.instance_of(str))
+    args: Optional[List[str]] = attr.ib(
+        default=None, validator=optional_str_list_validator()
+    )
+
+
+MaybeLocalized = Union[Dict[str, str], Dict[str, Union[List[str], str]]]
 
 
 def maybe_localized(
     thing: Union[str, Localized], nonloc: str, lockey: str, locarg: str
-) -> Dict[str, Union[str, List[str]]]:
+) -> MaybeLocalized:
     if isinstance(thing, Localized):
         attr.validate(thing)
-        localized = {lockey: thing.key}
+        localized: Dict[str, Union[str, List[str]]] = {lockey: thing.key}
         if thing.args:
             localized[locarg] = thing.args
         return localized
@@ -33,25 +36,25 @@ def maybe_localized(
 
 @attr.s
 class Alert:
-    body = attr.ib(validator=attr.validators.instance_of((str, Localized)))
-    title = attr.ib(
-        default=None,
-        validator=attr.validators.optional(
-            attr.validators.instance_of((str, Localized))
-        ),
+    body: Union[str, Localized] = attr.ib(
+        validator=instance_of_validator((str, Localized))
     )
-    action_loc_key = attr.ib(
+    title: Optional[Union[str, Localized]] = attr.ib(
+        default=None,
+        validator=attr.validators.optional(instance_of_validator((str, Localized))),
+    )
+    action_loc_key: Optional[str] = attr.ib(
         default=None,
         validator=attr.validators.optional(attr.validators.instance_of(str)),
     )
-    launch_image = attr.ib(
+    launch_image: Optional[str] = attr.ib(
         default=None,
         validator=attr.validators.optional(attr.validators.instance_of(str)),
     )
 
     def get_dict(self) -> Dict[str, Any]:
         attr.validate(self)
-        alert = {}
+        alert: Dict[str, Any] = {}
         if self.title:
             alert.update(
                 maybe_localized(self.title, "title", "title-loc-key", "title-loc-args")
@@ -66,34 +69,33 @@ class Alert:
 
 @attr.s
 class Notification:
-    alert = attr.ib(validator=attr.validators.instance_of(Alert))
-    badge = attr.ib(
+    alert: Alert = attr.ib(validator=attr.validators.instance_of(Alert))
+    badge: Optional[int] = attr.ib(
         default=None,
         validator=attr.validators.optional(attr.validators.instance_of(int)),
     )
-    sound = attr.ib(
+    sound: Optional[str] = attr.ib(
         default=None,
         validator=attr.validators.optional(attr.validators.instance_of(str)),
     )
-    content_available = attr.ib(
+    content_available: bool = attr.ib(
         default=False, validator=attr.validators.instance_of(bool)
     )
-    category = attr.ib(
+    category: Optional[str] = attr.ib(
         default=None,
         validator=attr.validators.optional(attr.validators.instance_of(str)),
     )
-    thread_id = attr.ib(
+    thread_id: Optional[str] = attr.ib(
         default=None,
         validator=attr.validators.optional(attr.validators.instance_of(str)),
     )
-    extra = attr.ib(
-        default=None,
-        validator=attr.validators.optional(attr.validators.instance_of(dict)),
+    extra: Optional[Dict[str, Any]] = attr.ib(
+        default=None, validator=optional_str_dict_validator()
     )
 
     def get_dict(self) -> Dict[str, Any]:
         attr.validate(self)
-        apns = {"alert": self.alert.get_dict()}
+        apns: Dict[str, Any] = {"alert": self.alert.get_dict()}
         if self.badge:
             apns["badge"] = self.badge
         if self.sound:

@@ -1,12 +1,12 @@
+import asyncio
 from asyncio import get_event_loop
 from typing import Dict
 
 import attr
 import click
+from aapns import config, models
+from aapns.api import create_client
 from structlog import get_logger
-
-from . import config, connect, models
-
 
 SERVERS: Dict[bool, Dict[bool, config.Server]] = {
     True: {True: config.ProductionAltPort, False: config.Production},
@@ -28,24 +28,26 @@ class Context:
 
 
 async def do_send(context: Context, notification: models.Notification) -> str:
-    conn = await connect(
+    client = await create_client(
         context.cert, context.server, logger=get_logger() if context.verbose else None
     )
-    resp_id = await conn.send_notification(
-        context.token,
-        notification,
-        apns_id=context.apns_id,
-        expiration=context.expiration,
-        priority=context.priority,
-        topic=context.topic,
-        collapse_id=context.collapse_id,
-    )
-    await conn.close()
+    try:
+        resp_id = await client.send_notification(
+            context.token,
+            notification,
+            apns_id=context.apns_id,
+            expiration=context.expiration,
+            priority=context.priority,
+            topic=context.topic,
+            collapse_id=context.collapse_id,
+        )
+    finally:
+        await client.close()
     return resp_id
 
 
 def send(context: Context, notification: models.Notification):
-    resp_id = get_event_loop().run_until_complete(do_send(context, notification))
+    resp_id = asyncio.run(do_send(context, notification))
     click.echo(resp_id)
 
 
