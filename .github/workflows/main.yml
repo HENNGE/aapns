@@ -1,5 +1,5 @@
 on: push
-name: "Main Workflow"
+name: "Main"
 jobs:
   black:
     runs-on: ubuntu-latest
