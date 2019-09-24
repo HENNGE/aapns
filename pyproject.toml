@@ -6,7 +6,7 @@ authors = ["Jonas Obrist <jonas.obrist@hennge.com>"]
 license = "Apache-2.0"
 repository = "https://github.com/hennge/aapns"
 classifiers = [
-  "Development Status :: 4 - Beta",
+  "Development Status :: 5 - Stable",
   "Framework :: AsyncIO",
   "Intended Audience :: Developers",
   "License :: OSI Approved :: Apache Software License",
