@@ -8,7 +8,6 @@ from structlog import BoundLogger
 from . import config, errors, models
 
 Headers = List[Tuple[str, str]]
-Coroutine = Callable[..., Awaitable[Any]]
 
 
 def encode_request(
