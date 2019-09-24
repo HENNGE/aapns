@@ -22,7 +22,10 @@ def encode_request(
     collapse_id: Optional[str] = None,
 ) -> Tuple[URL, Headers, bytes]:
     request_body = notification.encode()
-    request_headers = [("apns-priority", str(priority.value))]
+    request_headers = [
+        ("apns-priority", str(priority.value)),
+        ("apns-push-type", notification.push_type.value),
+    ]
 
     if apns_id:
         request_headers.append(("apns-id", apns_id))

@@ -165,13 +165,15 @@ API Reference
 
 .. py:module:: aapns.models
 
-.. py:class:: Notification(alert, badge=None, sound=None, content_available=False, category=None, thread_id=None, extra=None)
+.. py:class:: Notification(alert, push_type=PushType.alert, badge=None, sound=None, content_available=False, category=None, thread_id=None, extra=None)
 
     Represents a notification to send. For details on the parameters, please
     refer to the Apple APNS documentation.
 
     :param alert: Alert to send
     :type alert: :py:class:`Alert`
+    :param push_type: Type of push notification
+    :type push_type: :py:class:`PushType`
     :param int badge: Optional badge number to set
     :param str sound: Optional path to sound file
     :param bool content_available: Optional flag to indicate there is content available
@@ -191,6 +193,13 @@ API Reference
     :param str action_loc_key: Optional localization key to use for the action button of the alert
     :param str launch_image: Optional path to the launch image to use for the alert
 
+
+.. py:class:: PushType
+
+    Enum holding possible types of push notifications
+
+    .. py:attribute:: alert
+    .. py:attribute:: background
 
 .. py:class:: Localized(key, args=None)
 
