@@ -24,7 +24,7 @@ jobs:
       - name: patch httpx
         uses: abatilo/actions-poetry@master
         with:
-          args: run python -c 'import httpx; import pathlib; pathlib.Path(httpx.__file__).parent.joinpath("py.typed").touch()'
+          args: run python fix_httpx_typing.py
       - name: lint
         uses: abatilo/actions-poetry@master
         with:
