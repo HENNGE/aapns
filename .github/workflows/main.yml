@@ -17,10 +17,6 @@ jobs:
         uses: abatilo/actions-poetry@master
         with:
           args: install
-      - name: install mypy
-        uses: abatilo/actions-poetry@master
-        with:
-          args: run pip install mypy
       - name: patch httpx
         uses: abatilo/actions-poetry@master
         with:
