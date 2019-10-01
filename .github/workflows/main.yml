@@ -13,11 +13,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@master
-      - uses: actions/setup-python@v1
+      - name: install
+        uses: abatilo/actions-poetry@master
         with:
-          python-version: '3.7'
-      - run: pip install mypy
-      - run: mypy
+          args: install
+      - name: install mypy
+        uses: abatilo/actions-poetry@master
+        with:
+          args: run pip install mypy
+      - name: patch httpx
+        uses: abatilo/actions-poetry@master
+        with:
+          args: run python -c 'import httpx; import pathlib; pathlib.Path(httpx.__file__).parent.joinpath("py.typed").touch()'
+      - name: lint
+        uses: abatilo/actions-poetry@master
+        with:
+          args: run mypy
   tests:
     runs-on: ubuntu-latest
     steps:

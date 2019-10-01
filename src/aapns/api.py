@@ -2,7 +2,8 @@ import json
 from typing import *
 
 import attr
-from httpx import URL, AsyncClient, AsyncResponse
+from httpx import URL, AsyncClient, AsyncResponse, TimeoutTypes
+from httpx.config import DEFAULT_TIMEOUT_CONFIG
 from structlog import BoundLogger
 
 from . import config, errors, models
@@ -100,7 +101,7 @@ async def create_client(
     server: config.Server,
     *,
     logger: Optional[BoundLogger] = None,
-    timeout: Optional[float] = None,
+    timeout: TimeoutTypes = DEFAULT_TIMEOUT_CONFIG,
 ) -> APNS:
     client = AsyncClient(
         http_versions=["HTTP/2"], cert=client_cert_path, timeout=timeout
