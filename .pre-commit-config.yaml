@@ -13,7 +13,3 @@ repos:
     files: "^(src/.*\\.py|tests/.*\\.py)"
     additional_dependencies:
     - toml
-- repo: https://github.com/pre-commit/mirrors-mypy
-  rev: master
-  hooks:
-  - id: mypy
