@@ -18,11 +18,11 @@ jobs:
         with:
           args: install
       - name: patch httpx
-        uses: abatilo/actions-poetry@master
+        uses: abatilo/actions-poetry@3.7.4
         with:
           args: run python fix_httpx_typing.py
       - name: lint
-        uses: abatilo/actions-poetry@master
+        uses: abatilo/actions-poetry@3.7.4
         with:
           args: run mypy
   tests:
@@ -30,10 +30,10 @@ jobs:
     steps:
       - uses: actions/checkout@master
       - name: install
-        uses: abatilo/actions-poetry@master
+        uses: abatilo/actions-poetry@3.7.4
         with:
           args: install
       - name: run
-        uses: abatilo/actions-poetry@master
+        uses: abatilo/actions-poetry@3.7.4
         with:
           args: run pytest
