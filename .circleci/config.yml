@@ -1,0 +1,60 @@
+version: 2.1
+commands:
+  poetry:
+    parameters:
+      command:
+        type: string
+    steps:
+      - run:
+          name: Download Poetry Installer
+          command: |
+            wget https://raw.githubusercontent.com/sdispater/poetry/master/get-poetry.py
+      - run:
+          name: Install Poetry
+          command: POETRY_PREVIEW=1 python get-poetry.py  --yes
+      - run:
+          name: Run Poetry Install
+          command: ~/.poetry/bin/poetry install
+      - run:
+          name: Run Poetry Command
+          command: ~/.poetry/bin/poetry run << parameters.command >>
+jobs:
+  pytest:
+    working_directory: ~/workspace
+    docker:
+      - image: circleci/python:3.8
+    steps:
+      - checkout
+      - poetry:
+          command: pytest
+  mypy:
+    working_directory: ~/workspace
+    docker:
+      - image: circleci/python:3.8
+    steps:
+      - checkout
+      - poetry:
+          command: mypy
+  black:
+    working_directory: ~/workspace
+    docker:
+      - image: circleci/python:3.8
+    steps:
+      - checkout
+      - poetry:
+          command: black --check src tests
+  isort:
+    working_directory: ~/workspace
+    docker:
+      - image: circleci/python:3.8
+    steps:
+      - checkout
+      - poetry:
+          command: isort --check-only src tests
+workflows:
+  aapns_workflow:
+    jobs:
+      - pytest
+      - mypy
+      - black
+      - isort
