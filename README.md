@@ -1,7 +1,6 @@
 # AAPNS
 
-![Build](https://github.com/hennge/aapns/workflows/Main/badge.svg
-)
+[![CircleCI](https://circleci.com/gh/HENNGE/aapns.svg?style=svg)](https://circleci.com/gh/HENNGE/aapns)
 [![Documentation Status](https://readthedocs.org/projects/aapns/badge/?version=latest)](http://aapns.readthedocs.io/en/latest/?badge=latest)
 
 Asynchronous Apple Push Notification Service client.

@@ -4,18 +4,17 @@ from typing import *
 
 import attr
 
-from .typing_workarounds import (
-    instance_of_validator,
-    optional_str_dict_validator,
-    optional_str_list_validator,
-)
-
 
 @attr.s
 class Localized:
     key: str = attr.ib(validator=attr.validators.instance_of(str))
     args: Optional[List[str]] = attr.ib(
-        default=None, validator=optional_str_list_validator()
+        default=None,
+        validator=attr.validators.optional(
+            attr.validators.deep_iterable(
+                attr.validators.instance_of(str), attr.validators.instance_of(list)
+            )
+        ),
     )
 
 
@@ -38,11 +37,13 @@ def maybe_localized(
 @attr.s
 class Alert:
     body: Union[str, Localized] = attr.ib(
-        validator=instance_of_validator((str, Localized))
+        validator=attr.validators.instance_of((str, Localized))
     )
     title: Optional[Union[str, Localized]] = attr.ib(
         default=None,
-        validator=attr.validators.optional(instance_of_validator((str, Localized))),
+        validator=attr.validators.optional(
+            attr.validators.instance_of((str, Localized))
+        ),
     )
     action_loc_key: Optional[str] = attr.ib(
         default=None,
@@ -100,7 +101,14 @@ class Notification:
         validator=attr.validators.optional(attr.validators.instance_of(str)),
     )
     extra: Optional[Dict[str, Any]] = attr.ib(
-        default=None, validator=optional_str_dict_validator()
+        default=None,
+        validator=attr.validators.optional(
+            attr.validators.deep_mapping(
+                attr.validators.instance_of(str),
+                attr.validators.instance_of(object),
+                attr.validators.instance_of(dict),
+            )
+        ),
     )
 
     def get_dict(self) -> Dict[str, Any]:
