@@ -1,5 +1,9 @@
 # Changelog
 
+## 19.11.1
+
+* Fixed click dependency.
+
 ## 19.11
 
 * Removed `aapns.connect`
