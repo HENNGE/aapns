@@ -1,6 +1,6 @@
 # Changelog
 
-## (unreleased)
+## 19.11
 
 * Removed `aapns.connect`
 * Removed all import aliases from `aapns`
