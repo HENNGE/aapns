@@ -1,5 +1,9 @@
 # Changelog
 
+## 20.2
+
+* Updated httpx.
+
 ## 19.11.1
 
 * Fixed click dependency.
