@@ -2,8 +2,8 @@ import json
 from typing import *
 
 import attr
-from httpx import URL, AsyncClient, AsyncResponse, TimeoutTypes
-from httpx.config import DEFAULT_TIMEOUT_CONFIG
+from httpx import URL, AsyncClient, Response
+from httpx.config import DEFAULT_TIMEOUT_CONFIG, TimeoutTypes
 from structlog import BoundLogger
 
 from . import config, errors, models
@@ -43,11 +43,11 @@ def encode_request(
     )
 
 
-async def handle_response(response: AsyncResponse) -> str:
+async def handle_response(response: Response) -> str:
     response_id = response.headers.get("apns-id", "")
 
     if response.status_code != 200:
-        reason = await response.read()
+        reason = await response.aread()
         try:
             reason = json.loads(reason)["reason"]
         except Exception:
@@ -93,7 +93,7 @@ class APNS:
         return await handle_response(response)
 
     async def close(self):
-        await self.client.close()
+        await self.client.aclose()
 
 
 async def create_client(
@@ -103,7 +103,5 @@ async def create_client(
     logger: Optional[BoundLogger] = None,
     timeout: TimeoutTypes = DEFAULT_TIMEOUT_CONFIG,
 ) -> APNS:
-    client = AsyncClient(
-        http_versions=["HTTP/2"], cert=client_cert_path, timeout=timeout
-    )
+    client = AsyncClient(http2=True, cert=client_cert_path, timeout=timeout)
     return APNS(client, logger, server)
