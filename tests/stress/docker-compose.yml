@@ -1,0 +1,19 @@
+version: "3.7"
+
+services:
+  nginx:
+    build: nginx
+    init: true
+    ports:
+      - "2015:2015"
+      - "2197:2197"
+  slow_responder:
+    build: slow_responder
+    init: true
+    ports:
+      - "8123:8080"
+        #volumes:
+        #- type: bind
+        #source: /Users/dima.tisnek/minio-data
+        #target: /data
+        #consistency: delegated

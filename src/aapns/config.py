@@ -13,6 +13,8 @@ Production = Server("api.push.apple.com", 443)
 ProductionAltPort = attr.evolve(Production, port=2197)
 Development = Server("api.development.push.apple.com", 443)
 DevelopmentAltPort = attr.evolve(Development, port=2197)
+Local = Server("localhost", 443)
+LocalAltPort = attr.evolve(Local, port=2197)
 
 
 class Priority(Enum):

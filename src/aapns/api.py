@@ -103,5 +103,7 @@ async def create_client(
     logger: Optional[BoundLogger] = None,
     timeout: TimeoutTypes = DEFAULT_TIMEOUT_CONFIG,
 ) -> APNS:
-    client = AsyncClient(http2=True, cert=client_cert_path, timeout=timeout)
+    client = AsyncClient(http2=True, cert=client_cert_path, timeout=timeout,
+            verify=False,  # FIXME local testing only
+            )
     return APNS(client, logger, server)

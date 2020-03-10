@@ -11,6 +11,7 @@ from structlog import get_logger
 SERVERS: Dict[bool, Dict[bool, config.Server]] = {
     True: {True: config.ProductionAltPort, False: config.Production},
     False: {True: config.DevelopmentAltPort, False: config.Development},
+    False: {True: config.LocalAltPort, False: config.Local},
 }
 
 
