@@ -1,16 +1,24 @@
+import json
 import logging
 import time
 import cherrypy
 
-class Foo:
+
+class Controller:
     @cherrypy.expose
-    def index(self, **kw):
-        logging.info("sleeping")
-        time.sleep(5)
-        logging.info("responding")
-        return "foobar\n" * 10
+    def default(self, *vpath, **kw):
+        assert cherrypy.request.method == "POST"
+        data = json.load(cherrypy.request.body)
+        # {"aps": {"alert": {"body": "123"}}}
+        # cherrypy.request.path_info
+        # "/3/device/hexhexhex"
+        # vpath
+        # ("device", "hexhexhex")
+        # time.sleep(.1)
+        return "foobar"
+
 
 logging.basicConfig(level=logging.INFO)
 cherrypy.config.update({"server.socket_host": "0.0.0.0"})
 cherrypy.config.update({"server.thread_pool": 2048})
-cherrypy.quickstart(Foo())
+cherrypy.quickstart(Controller)

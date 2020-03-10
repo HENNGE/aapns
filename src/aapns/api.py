@@ -1,4 +1,6 @@
 import json
+import socket
+import ssl
 from typing import *
 
 import attr
@@ -103,7 +105,72 @@ async def create_client(
     logger: Optional[BoundLogger] = None,
     timeout: TimeoutTypes = DEFAULT_TIMEOUT_CONFIG,
 ) -> APNS:
-    client = AsyncClient(http2=True, cert=client_cert_path, timeout=timeout,
-            verify=False,  # FIXME local testing only
-            )
+    client = AsyncClient(
+        http2=True,
+        cert=client_cert_path,
+        timeout=timeout,
+        verify=False,  # FIXME local testing only
+    )
     return APNS(client, logger, server)
+
+
+@dataclass(frozen=True)
+class APNS2:
+    ssl_context: ssl.SSLContext
+    server: config.Server
+
+    async def __aenter__(self):
+        # FIXME connect timeout
+        # FIXME consider trying IPv6 and IPv4 in parallel
+        self.r, self.w = await asyncio.open_connection(
+            host, port, ssl=ssl_context, ssl_handshake_timeout=5
+        )
+        info = self.w.get_extra_info("ssl_object")
+        assert info, "HTTP/2 server is required"
+        proto = indent.selected_alpn_protocol()
+        assert proto == "h2", "Failed to negotiate HTTP/2"
+
+    async def __aexit__(self, exc_type, exc, tb):
+        # FIXME kill all requests in flight
+        self.w.close()
+        await self.w.wait_closed()
+
+    async def send_notification(
+        self,
+        token: str,
+        notification: models.Notification,
+        *,
+        apns_id: Optional[str] = None,
+        expiration: Optional[int] = None,
+        priority: config.Priority = config.Priority.normal,
+        topic: Optional[str] = None,
+        collapse_id: Optional[str] = None,
+    ) -> str:
+        url, headers, body = encode_request(
+            token=token,
+            notification=notification,
+            apns_id=apns_id,
+            expiration=expiration,
+            priority=priority,
+            topic=topic,
+            collapse_id=collapse_id,
+            server=self.server,
+        )
+
+        response = await self.foobar(url, headers, body)
+        xx = await self.foobaz(response)
+        return xx
+
+
+async def create_client_h2(
+    client_cert_path: str,
+    server: config.Server,
+    *,
+    logger: Optional[BoundLogger] = None,
+    timeout: TimeoutTypes = DEFAULT_TIMEOUT_CONFIG,
+) -> APNS:
+    ssl_context = ssl.create_default_context()
+    ssl_context.options |= ssl.OP_NO_TLSv1
+    ssl_context.options |= ssl.OP_NO_TLSv1_1
+    ssl_context.load_cert_chain(certfile=client_cert_path, keyfile=client_cert_path)
+    return APNS2(ssl_context, server)
