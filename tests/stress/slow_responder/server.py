@@ -6,7 +6,7 @@ import cherrypy
 
 class Controller:
     @cherrypy.expose
-    def default(self, *vpath, **kw):
+    def default(*vpath, **kw):
         assert cherrypy.request.method == "POST"
         data = json.load(cherrypy.request.body)
         # {"aps": {"alert": {"body": "123"}}}

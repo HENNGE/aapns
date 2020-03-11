@@ -114,14 +114,18 @@ async def create_client(
     return APNS(client, logger, server)
 
 
+from dataclasses import dataclass
+
+
 @dataclass(frozen=True)
 class APNS2:
     ssl_context: ssl.SSLContext
     server: config.Server
 
     async def __aenter__(self):
-        # FIXME connect timeout
-        # FIXME consider trying IPv6 and IPv4 in parallel
+        # FIXME add explicit connect timeout,
+        #   it's not the same as ssl handshake timeout
+        # APN host name resolves to IPv4 only today...
         self.r, self.w = await asyncio.open_connection(
             host, port, ssl=ssl_context, ssl_handshake_timeout=5
         )
