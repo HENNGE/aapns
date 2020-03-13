@@ -38,6 +38,8 @@ class Channel:
     sid: int
     fut: asyncio.Future
     ev: List[h2.events.Event] = field(default_factory=list)
+    header: Dict[str, str] = None
+    body: bytes = b""
 
 
 class Connection:
@@ -170,9 +172,8 @@ class Connection:
         try:
             sid = self.conn.get_next_available_stream_id()
         except h2.NoAvailableStreamIDError:
-            # FIXME is it transient or temporary?
-            # will more connections be allowed later?
-            # Note: as of h2-3.2.0 this is permanent.
+            # As of h2-3.2.0 this is permanent.
+            # FIXME ought we mark the connection as closing?
             raise Closed()
 
         assert sid not in self.channels
@@ -187,7 +188,14 @@ class Connection:
                 ch.fut = asyncio.Future()
                 await asyncio.wait_for(ch.fut, deadline - now)
                 now = time.monotonic()
-                logging.warning("implement")
+                for event in ch.ev:
+                    logging.info("%s got %s", time.monotonic(), event)
+                    if isinstance(event, h2.events.ResponseReceived):
+                        ch.header = dict(event.headers)
+                    elif isinstance(event, h2.events.DataReceived):
+                        ch.body += event.data
+                    elif isinstance(event, h2.events.StreamEnded):
+                        return ch.header, ch.body
             else:
                 raise Closed()
         finally:
@@ -244,7 +252,8 @@ async def test():
             header = dict(foo="bar")
             header = tuple((f":{k}", v) for k, v in pseudo.items()) + tuple(header.items())
             data = json.dumps(dict(bar="baz")).encode("utf-8")
-            await c.post(header, data)
+            h, b = await c.post(header, data)
+            logging.info("response %s", [h, b])
     except Closed:
         logging.warning("Oops, closed")
 
