@@ -8,7 +8,7 @@ import time
 import yarl
 from dataclasses import dataclass, field
 from unittest.mock import patch
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any, Tuple, Optional
 
 import h2.connection, h2.config, h2.settings
 
@@ -160,11 +160,11 @@ class Connection:
             logging.exception("background read task died")
             # FIXME report that connection is busted
 
-    async def post(self, header, body, deadline=math.inf) -> Tuple[dict, bytes]:
-        assert len(body) < MAX_NOTIFICATION_PAYLOAD_SIZE
+    async def post(self, req: "Request") -> "Response":
+        assert len(req.body) <= MAX_NOTIFICATION_PAYLOAD_SIZE
 
         now = time.monotonic()
-        if now > deadline:
+        if now > req.deadline:
             raise Timeout()
         if self.blocked:
             raise Blocked()
@@ -179,29 +179,31 @@ class Connection:
         assert sid not in self.channels
 
         ch = self.channels[sid] = Channel(sid, None, [])
-        self.conn.send_headers(sid, header, False)
+        self.conn.send_headers(sid, req.header, end_stream=False)
         self.conn.increment_flow_control_window(2 ** 16, stream_id=sid)
-        self.conn.send_data(sid, body, end_stream=True)
+        self.conn.send_data(sid, req.body, end_stream=True)
 
         try:
             while not self.closing:
                 ch.fut = asyncio.Future()
-                await asyncio.wait_for(ch.fut, deadline - now)
+                try:
+                    await asyncio.wait_for(ch.fut, req.deadline - now)
+                except asyncio.TimeoutError:
+                    pass
                 now = time.monotonic()
+                if now > req.deadline:
+                    raise Timeout()
                 for event in ch.ev:
-                    logging.info("%s got %s", time.monotonic(), event)
                     if isinstance(event, h2.events.ResponseReceived):
                         ch.header = dict(event.headers)
                     elif isinstance(event, h2.events.DataReceived):
                         ch.body += event.data
                     elif isinstance(event, h2.events.StreamEnded):
-                        return ch.header, ch.body
+                        return Response.new(ch.header, ch.body)
             else:
                 raise Closed()
         finally:
             del self.channels[sid]
-
-        logging.warning("no what?")
 
     async def background_write(self):
         try:
@@ -243,17 +245,40 @@ def authority(url: yarl.URL):
         return f"{url.host}:{url.port}"
 
 
+@dataclass
+class Request:
+    header: tuple
+    body: bytes
+    deadline: float
+
+    @classmethod
+    def new(cls, url: str, header: Optional[dict], data: dict, deadline: float = math.inf):
+        url = yarl.URL(url)
+        pseudo = dict(method="POST", scheme=url.scheme, authority=authority(url), path=url.path_qs)
+        header = tuple((f":{k}", v) for k, v in pseudo.items()) + tuple((header or {}).items())
+        return cls(header, json.dumps(data).encode("utf-8"), deadline)
+
+
+@dataclass
+class Response:
+    code: int
+    header: Dict[str, str]
+    data: Optional[dict]
+
+    @classmethod
+    def new(cls, header: dict, body: bytes):
+        h = {**header}
+        code = int(h.pop(":status", "0"))
+        return cls(code, h, json.loads(body) if body else None)
+
+
 async def test():
     try:
-        url = "https://localhost:2197/3/device/aa?q=1"
-        url = yarl.URL(url)
         async with Connection() as c:
-            pseudo = dict(method="POST", scheme=url.scheme, authority=authority(url), path=url.path_qs)
-            header = dict(foo="bar")
-            header = tuple((f":{k}", v) for k, v in pseudo.items()) + tuple(header.items())
-            data = json.dumps(dict(bar="baz")).encode("utf-8")
-            h, b = await c.post(header, data)
-            logging.info("response %s", [h, b])
+            req = Request.new("https://localhost:2197/3/device/aaa", dict(foo="bar"), dict(baz=42))
+            resp = await c.post(req)
+            logging.info("response %s", resp)
+            await c.post(Request.new("https://localhost:2197/3/device/aaa", None, {}, time.monotonic() + .5))
     except Closed:
         logging.warning("Oops, closed")
 

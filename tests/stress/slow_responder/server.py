@@ -14,8 +14,8 @@ class Controller:
         # "/3/device/hexhexhex"
         # vpath
         # ("device", "hexhexhex")
-        # time.sleep(.1)
-        return "foobar"
+        time.sleep(2)
+        return json.dumps(dict(foo="quux"))
 
 
 logging.basicConfig(level=logging.INFO)
