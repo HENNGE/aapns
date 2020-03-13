@@ -8,7 +8,7 @@ Asynchronous Apple Push Notification Service client.
 ## Raw H2
 
 * Requires TLS 1.2 or better
-* Requires modern Python (3.8?)
+* Requires Python 3.8 or better
 * APN only runs on IPv4, don't worry about happy eyeballs
 
 ### Plan

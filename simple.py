@@ -1,9 +1,11 @@
 import asyncio
 import contextlib
+import json
 import logging
 import math
 import ssl
-from dataclasses import dataclass
+import time
+from dataclasses import dataclass, field
 from unittest.mock import patch
 from typing import List, Dict, Any, Tuple
 
@@ -34,7 +36,7 @@ REQUIRED_FREE_SPACE = 6000
 class Channel:
     sid: int
     fut: asyncio.Future
-    ev: List[h2.events.Event]
+    ev: List[h2.events.Event] = field(default_factory=list)
 
 
 class Connection:
@@ -88,26 +90,34 @@ class Connection:
         return self.closing or self.closed or self.conn.outbound_flow_control_window < REQUIRED_FREE_SPACE
 
     async def __aexit__(self, exc_type, exc, tb):
-        if exc_type:
-            logging.warning("FIXME implement hard quit: error, cancellation")
         self.closing = True
-        if self.bgr:
-            self.bgr.cancel()
-            pass
-        if self.bgw:
-            self.bgw.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                # Is it truly necessary to wait for writer to give up?
-                # It's good to prevent writer from issuing socket writes...
-                await self.bgw
-        self.w.close()
         try:
-            await self.w.wait_closed()
-        except ssl.SSLError:
-            # One possible explanation:
-            # We've notified the server that we are closing the connection,
-            # but the sever keeps sending us data.
-            logging.info("Why does this happen?", exc_info=True)
+            if isinstance(exc_type, asyncio.CancelledError):
+                logging.warning("FIXME implement cancellation")
+            elif exc_type:
+                # hard quit: code block raised exception
+                # it may be that the connection is already closed
+                # hopefully error handling can be same
+                ...
+
+            if self.bgw:
+                self.bgw.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await self.bgw
+
+            if self.bgr:
+                self.bgr.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await self.bgr
+
+            # at this point, we must release or cancel all pending requests
+            for sid, ch in self.channels.items():
+                if ch.fut and not ch.fut.done():
+                    ch.fut.set_exception(Closed())
+
+            self.w.close()
+            with contextlib.suppress(ssl.SSLError):
+                await self.w.wait_closed()
         finally:
             self.closed = True
 
@@ -116,35 +126,36 @@ class Connection:
             while not self.closed:
                 data = await self.r.read(2 ** 16)
                 if not data:
-                    # FIXME cleanup, errors, etc.
-                    logging.warning("read: connection is closed!")
+                    self.closing = self.closed = True
+                    for sid, ch in self.channels.items():
+                        if ch.fut and not ch.fut.done():
+                            ch.fut.set_exception(Closed())
                     return
 
                 for event in self.conn.receive_data(data):
-                    sid = getattr(event, "stream_id", None)
+                    sid = getattr(event, "stream_id", 0)
                     error = getattr(event, "error_code", None)
                     # slightly out of order here...
-                    if sid in self.channels:
-                        self.channels.ev.append(event)
-                        if not self.channels.fut.done():
-                            self.channels.fut.set_result(None)
-                    elif sid is None and error is not None:
+                    ch = self.channels.get(sid)
+                    if not ch:
+                        continue
+                    ch.ev.append(event)
+                    if not ch.fut.done():
+                        ch.fut.set_result(None)
+                    elif not sid and error is not None:
                         # break the connection,
                         # but give users a chance to complete
                         self.closing = True
+                        # FIXME handle this properly
                     else:
                         logging.warning("ignored %s %s", sid, event)
 
                 self.please_write.set()
                 # FIXME notify users about possible change to `.blocked`
+                # FIXME more selective: only on h2.events.WindowUpdated
         except Exception:
             logging.exception("background read task died")
             # FIXME report that connection is busted
-
-    async def write(self, data: bytes):
-        # FIXME maybe lock this... but then again, why would 2 coros
-        # attempt to write at the same time?
-        ...
 
     async def post(self, header, body, deadline=math.inf) -> Tuple[dict, bytes]:
         assert len(body) < MAX_NOTIFICATION_PAYLOAD_SIZE
@@ -155,17 +166,31 @@ class Connection:
         if self.blocked:
             raise Blocked()
 
-        sid = self.conn.get_next_available_stream_id()
+        try:
+            sid = self.conn.get_next_available_stream_id()
+        except h2.NoAvailableStreamIDError:
+            # FIXME is it transient or temporary?
+            # will more connections be allowed later?
+            # Note: as of h2-3.2.0 this is permanent.
+            raise Closed()
+
         assert sid not in self.channels
+
         ch = self.channels[sid] = Channel(sid, None, [])
         self.conn.send_headers(sid, header, False)
         self.conn.increment_flow_control_window(2 ** 16, stream_id=sid)
-        self.conn.send_data(...)
+        self.conn.send_data(sid, body, end_stream=True)
 
-        while not self.closing:
-            ch.fut = asyncio.Future()
-            await asyncio.wait_for(ch.fut, deadline - now)
-            logging.warning("implement")
+        try:
+            while not self.closing:
+                ch.fut = asyncio.Future()
+                await asyncio.wait_for(ch.fut, deadline - now)
+                now = time.monotonic()
+                logging.warning("implement")
+            else:
+                raise Closed()
+        finally:
+            del self.channels[sid]
 
         logging.warning("no what?")
 
@@ -190,15 +215,29 @@ class Connection:
             # FIXME report that connection is busted
 
 
+
+class Blocked(Exception):
+    """This connection can't send more data at this point, try another or later."""
+
+
+class Closed(Exception):
+    """This connection is now closed, try another."""
+
+
+class Timeout(Exception):
+    """The request deadline has passed."""
+
+
 async def test():
-    async with Connection() as self:
-        await asyncio.sleep(1)
-
-
-class Blocked(Exception): ...
-
-
-class Timeout(Exception): ...
+    try:
+        async with Connection() as c:
+            pseudo = dict(method="POST", scheme="https", authority="localhost:2197", path="/3/device/aa")
+            header = dict(foo="bar")
+            header = tuple((f":{k}", v) for k, v in pseudo.items()) + tuple(header.items())
+            data = json.dumps(dict(bar="baz")).encode("utf-8")
+            await c.post(header, data)
+    except Closed:
+        logging.warning("Oops, closed")
 
 
 logging.basicConfig(level=logging.INFO)
