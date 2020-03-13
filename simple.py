@@ -1,8 +1,10 @@
 import asyncio
+import contextlib
 import logging
 import math
 import ssl
 from dataclasses import dataclass
+from unittest.mock import patch
 from typing import List, Dict, Any, Tuple
 
 import h2.connection, h2.config, h2.settings
@@ -21,6 +23,12 @@ ssl_context.set_alpn_protocols(["h2"])
 # local tests
 ssl_context.load_verify_locations(cafile="tests/stress/nginx/cert.pem")
 
+# Apple limits APN payload (data) to 4KB or 5KB, depending.
+# Request header is not subject to flow control in HTTP/2
+# Data is subject to framing and padding, but those are minor.
+MAX_NOTIFICATION_PAYLOAD_SIZE = 5120
+REQUIRED_FREE_SPACE = 6000
+
 
 @dataclass
 class Channel:
@@ -29,7 +37,7 @@ class Channel:
     ev: List[h2.events.Event]
 
 
-class Self:
+class Connection:
     closed = closing = False
     bg = None
     channels: Dict[int, Channel] = None
@@ -40,6 +48,7 @@ class Self:
         # self.upstream_queue = []
 
     async def __aenter__(self):
+        self.please_write = asyncio.Event()
         self.r, self.w = await asyncio.open_connection(
             host, port, ssl=ssl_context, ssl_handshake_timeout=5
         )
@@ -63,45 +72,74 @@ class Self:
         )
 
         self.conn.initiate_connection()
-        self.conn.increment_flow_control_window(2 ** 24)  # ?
-        # Probably no need for timeout, smaller than TCP buffer
-        self.w.write(self.conn.data_to_send())
-        await self.w.drain()
+        # APN response body is empty (ok) or small (error)
+        self.conn.increment_flow_control_window(2 ** 24)
+        self.please_write.set()
 
-        self.bg = asyncio.create_task(self.background())
+        self.bgr = asyncio.create_task(self.background_read())
+        self.bgw = asyncio.create_task(self.background_write())
 
-        # FIXME perhaps wait for settings frame from server
+        # FIXME we could wait for settings frame from the server,
+        # to tell us how much we can actually send, as initial window is small
         return self
 
-    async def __aexit__(self, exc_type, exc, tb):
-        self.closing = True
-        if self.bg:
-            self.bg.cancel()
-        self.w.close()
-        await self.w.wait_closed()
-        self.closed = True
+    @property
+    def blocked(self):
+        return self.closing or self.closed or self.conn.outbound_flow_control_window < REQUIRED_FREE_SPACE
 
-    async def background(self):
-        while not self.closed:
-            data = await self.r.read(2 ** 16)
-            if not data:
-                # FIXME cleanup, errors, etc.
-                return
-            events = self.conn.receive_data(data)
-            for event in events:
-                sid = getattr(event, "stream_id", None)
-                error = getattr(event, "error_code", None)
-                # slightly out of order here...
-                if sid in self.channels:
-                    self.channels.ev.append(event)
-                    if not self.channels.fut.done():
-                        self.channels.fut.set_result(None)
-                elif sid is None and error is not None:
-                    # break the connection,
-                    # but give users a chance to complete
-                    self.closing = True
-                else:
-                    logging.warn("ignored %s %s", sid, event)
+    async def __aexit__(self, exc_type, exc, tb):
+        if exc_type:
+            logging.warning("FIXME implement hard quit: error, cancellation")
+        self.closing = True
+        if self.bgr:
+            self.bgr.cancel()
+            pass
+        if self.bgw:
+            self.bgw.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                # Is it truly necessary to wait for writer to give up?
+                # It's good to prevent writer from issuing socket writes...
+                await self.bgw
+        self.w.close()
+        try:
+            await self.w.wait_closed()
+        except ssl.SSLError:
+            # One possible explanation:
+            # We've notified the server that we are closing the connection,
+            # but the sever keeps sending us data.
+            logging.info("Why does this happen?", exc_info=True)
+        finally:
+            self.closed = True
+
+    async def background_read(self):
+        try:
+            while not self.closed:
+                data = await self.r.read(2 ** 16)
+                if not data:
+                    # FIXME cleanup, errors, etc.
+                    logging.warning("read: connection is closed!")
+                    return
+
+                for event in self.conn.receive_data(data):
+                    sid = getattr(event, "stream_id", None)
+                    error = getattr(event, "error_code", None)
+                    # slightly out of order here...
+                    if sid in self.channels:
+                        self.channels.ev.append(event)
+                        if not self.channels.fut.done():
+                            self.channels.fut.set_result(None)
+                    elif sid is None and error is not None:
+                        # break the connection,
+                        # but give users a chance to complete
+                        self.closing = True
+                    else:
+                        logging.warning("ignored %s %s", sid, event)
+
+                self.please_write.set()
+                # FIXME notify users about possible change to `.blocked`
+        except Exception:
+            logging.exception("background read task died")
+            # FIXME report that connection is busted
 
     async def write(self, data: bytes):
         # FIXME maybe lock this... but then again, why would 2 coros
@@ -109,56 +147,58 @@ class Self:
         ...
 
     async def post(self, header, body, deadline=math.inf) -> Tuple[dict, bytes]:
-        now = time.monotonic()
-        if self.closing:
-            raise Exception("too late")
-        if now > deadline:
-            raise Exception("timeout")
+        assert len(body) < MAX_NOTIFICATION_PAYLOAD_SIZE
 
-        # FIXME must block here if outgoing queue is full
-        await self.ensure_upstream(now, deadline)
+        now = time.monotonic()
+        if now > deadline:
+            raise Timeout()
+        if self.blocked:
+            raise Blocked()
 
         sid = self.conn.get_next_available_stream_id()
         assert sid not in self.channels
         ch = self.channels[sid] = Channel(sid, None, [])
         self.conn.send_headers(sid, header, False)
         self.conn.increment_flow_control_window(2 ** 16, stream_id=sid)
-        self.wakeup_sender()
+        self.conn.send_data(...)
 
-        while True:
+        while not self.closing:
             ch.fut = asyncio.Future()
             await asyncio.wait_for(ch.fut, deadline - now)
+            logging.warning("implement")
 
-    async def ensure_upstream(self, timestamp, deadline):
-        """
-        * if upstream has space, return immediately
-        * if upstream is stuck, wait
-        * background writer task will take first element
-          * TBD what if multiple elements can go?
-        * if a deadline hits:
-        """
-        if not blocked:
-            return
-        fut = asyncio.Future()
-        me = (fut, timestamp, deadline)
-        # heapq.heappush(self.upstream_queue, (timestamp, me))
-        # heapq.heappush(self.deadline_queue, (deadline, me))
-        await fut
-        # ...
+        logging.warning("no what?")
 
-    def wakeup_sender():
-        ...
+    async def background_write(self):
+        try:
+            # FIXME what should writer do on `closing and not closed`?
+            while not self.closed:
+                data = None
 
-    async def sender_loop():
-        self.upstream_stuck = True
-        self.w.write(self.conn.data_to_send())
-        await self.w.drain()
-        self.upstream_stuck = False
+                while not data:
+                    if self.closed:
+                        return
+                    data = self.conn.data_to_send()
+                    if not data:
+                        await self.please_write.wait()
+                        self.please_write.clear()
+
+                self.w.write(data)
+                await self.w.drain()
+        except Exception:
+            logging.exception("background write task died")
+            # FIXME report that connection is busted
 
 
 async def test():
-    async with Self() as self:
+    async with Connection() as self:
         await asyncio.sleep(1)
+
+
+class Blocked(Exception): ...
+
+
+class Timeout(Exception): ...
 
 
 logging.basicConfig(level=logging.INFO)
