@@ -12,8 +12,6 @@ from typing import List, Dict, Any, Tuple, Optional
 
 import h2.connection, h2.config, h2.settings
 
-host = "localhost"
-port = 2197
 client_cert_path = ".fake-cert"
 
 ssl_context = ssl.create_default_context()
@@ -46,16 +44,17 @@ class Connection:
     closed = closing = False
     bg = None
     channels: Dict[int, Channel] = None
-    # upstream_queue: List[Tuple[float, Any]] = None
 
-    def __init__(self):
+    def __init__(self, base_url: str):
         self.channels = dict()
-        # self.upstream_queue = []
+        url = yarl.URL(base_url)
+        self.host = url.host
+        self.port = url.port
 
     async def __aenter__(self):
         self.please_write = asyncio.Event()
         self.r, self.w = await asyncio.open_connection(
-            host, port, ssl=ssl_context, ssl_handshake_timeout=5
+            self.host, self.port, ssl=ssl_context, ssl_handshake_timeout=5
         )
         info = self.w.get_extra_info("ssl_object")
         assert info, "HTTP/2 server is required"
@@ -252,7 +251,21 @@ class Request:
     deadline: float
 
     @classmethod
-    def new(cls, url: str, header: Optional[dict], data: dict, deadline: float = math.inf):
+    def new(
+            cls,
+            url: str,
+            header: Optional[dict],
+            data: dict,
+            timeout: Optional[float] = None,
+            deadline: Optional[float] = None,
+            ):
+        if timeout is not None and deadline is not None:
+            raise ValueError("Specify timeout or deadline, but not both")
+        elif timeout is not None:
+            deadline = time.monotonic() + timeout
+        elif deadline is None:
+            deadline = math.inf
+
         url = yarl.URL(url)
         pseudo = dict(method="POST", scheme=url.scheme, authority=authority(url), path=url.path_qs)
         header = tuple((f":{k}", v) for k, v in pseudo.items()) + tuple((header or {}).items())
@@ -272,16 +285,22 @@ class Response:
         return cls(code, h, json.loads(body) if body else None)
 
 
-async def test():
+async def test(c, i):
     try:
-        async with Connection() as c:
-            req = Request.new("https://localhost:2197/3/device/aaa", dict(foo="bar"), dict(baz=42))
-            resp = await c.post(req)
-            logging.info("response %s", resp)
-            await c.post(Request.new("https://localhost:2197/3/device/aaa", None, {}, time.monotonic() + .5))
+        req = Request.new(f"https://localhost:2197/3/device/aaa-{i}",
+                dict(foo="bar"), dict(baz=42), timeout = i * .1)
+        resp = await c.post(req)
+        logging.info("%s %s %s", i, resp.code, resp.data)
+    except (Timeout, Blocked, Closed) as e:
+        logging.info("%s %r", i, e)
+
+async def test_many():
+    try:
+        async with Connection("https://localhost:2197") as c:
+            asyncio.gather(*[test(c, i) for i in range(-5, 20)])
     except Closed:
         logging.warning("Oops, closed")
 
 
 logging.basicConfig(level=logging.INFO)
-asyncio.run(test())
+asyncio.run(test_many())
