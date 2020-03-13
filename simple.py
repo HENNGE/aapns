@@ -5,12 +5,14 @@ import logging
 import math
 import ssl
 import time
-import yarl
 from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional, Tuple
 from unittest.mock import patch
-from typing import List, Dict, Any, Tuple, Optional
 
-import h2.connection, h2.config, h2.settings
+import h2.config
+import h2.connection
+import h2.settings
+import yarl
 
 client_cert_path = ".fake-cert"
 
