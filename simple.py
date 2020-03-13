@@ -36,16 +36,16 @@ REQUIRED_FREE_SPACE = 6000
 @dataclass
 class Channel:
     sid: int
-    fut: asyncio.Future
+    fut: Optional[asyncio.Future]
     ev: List[h2.events.Event] = field(default_factory=list)
-    header: Dict[str, str] = None
+    header: Optional[dict] = None
     body: bytes = b""
 
 
 class Connection:
     closed = closing = False
     bg = None
-    channels: Dict[int, Channel] = None
+    channels: Dict[int, Channel]
 
     def __init__(self, base_url: str):
         self.channels = dict()
@@ -283,14 +283,14 @@ class Request:
         elif deadline is None:
             deadline = math.inf
 
-        url = yarl.URL(url)
+        u = yarl.URL(url)
         pseudo = dict(
-            method="POST", scheme=url.scheme, authority=authority(url), path=url.path_qs
+            method="POST", scheme=u.scheme, authority=authority(u), path=u.path_qs
         )
-        header = tuple((f":{k}", v) for k, v in pseudo.items()) + tuple(
+        h = tuple((f":{k}", v) for k, v in pseudo.items()) + tuple(
             (header or {}).items()
         )
-        return cls(header, json.dumps(data).encode("utf-8"), deadline)
+        return cls(h, json.dumps(data).encode("utf-8"), deadline)
 
 
 @dataclass
@@ -300,14 +300,14 @@ class Response:
     data: Optional[dict]
 
     @classmethod
-    def new(cls, header: dict, body: bytes):
-        h = {**header}
+    def new(cls, header: Optional[dict], body: bytes):
+        h = {**(header or {})}
         code = int(h.pop(":status", "0"))
         logging.info("got %s %s", code, body)
         try:
             return cls(code, h, json.loads(body) if body else None)
         except json.JSONDecodeError:
-            raise FormatError(f"Not JSON: {body[:20]}")
+            raise FormatError(f"Not JSON: {body[:20]!r}")
 
 
 async def test(c, i):
