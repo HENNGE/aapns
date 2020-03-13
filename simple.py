@@ -143,21 +143,29 @@ class Connection:
                 for event in self.conn.receive_data(data):
                     sid = getattr(event, "stream_id", 0)
                     error = getattr(event, "error_code", None)
-                    # slightly out of order here...
                     ch = self.channels.get(sid)
-                    if not ch:
-                        continue
-                    ch.ev.append(event)
-                    if not ch.fut.done():
-                        ch.fut.set_result(None)
-                    elif not sid and error is not None:
-                        # break the connection,
-                        # but give users a chance to complete
+                    if ch:
+                        ch.ev.append(event)
+                        if not ch.fut.done():
+                            ch.fut.set_result(None)
+                    else:
+                        # Common case: post caller timed out and quit
+                        logging.debug("request fell off %s %s", sid, event)
+
+                    if not sid and error is not None:
+                        # FIXME break the connection,but give users a chance to complete
                         logging.warning("Bad error %s", event)
                         self.closing = True
-                        # FIXME handle this properly
-                    else:
-                        logging.warning("ignored %s %s", sid, event)
+                    elif not sid:
+                        if not isinstance(
+                            event,
+                            (
+                                h2.events.RemoteSettingsChanged,
+                                h2.events.SettingsAcknowledged,
+                                h2.events.WindowUpdated,
+                            ),
+                        ):
+                            logging.debug("ignored global event %s", event)
 
                 self.please_write.set()
                 # FIXME notify users about possible change to `.blocked`
@@ -303,7 +311,6 @@ class Response:
     def new(cls, header: Optional[dict], body: bytes):
         h = {**(header or {})}
         code = int(h.pop(":status", "0"))
-        logging.info("got %s %s", code, body)
         try:
             return cls(code, h, json.loads(body) if body else None)
         except json.JSONDecodeError:
@@ -327,7 +334,7 @@ async def test(c, i):
 async def test_many():
     try:
         async with Connection("https://localhost:2197") as c:
-            await asyncio.gather(*[test(c, i) for i in range(-2, 200)])
+            await asyncio.gather(*[test(c, i) for i in range(-2, 200, 2)])
     except Closed:
         logging.warning("Oops, closed")
 
