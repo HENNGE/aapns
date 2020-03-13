@@ -89,7 +89,7 @@ class Connection:
 
     @property
     def blocked(self):
-        return self.closing or self.closed or self.conn.outbound_flow_control_window < REQUIRED_FREE_SPACE
+        return self.closing or self.closed or self.conn.outbound_flow_control_window <= REQUIRED_FREE_SPACE
 
     async def __aexit__(self, exc_type, exc, tb):
         self.closing = True
@@ -100,7 +100,7 @@ class Connection:
                 # hard quit: code block raised exception
                 # it may be that the connection is already closed
                 # hopefully error handling can be same
-                ...
+                pass
 
             if self.bgw:
                 self.bgw.cancel()
@@ -147,6 +147,7 @@ class Connection:
                     elif not sid and error is not None:
                         # break the connection,
                         # but give users a chance to complete
+                        logging.warning("Bad error %s", event)
                         self.closing = True
                         # FIXME handle this properly
                     else:
@@ -237,6 +238,10 @@ class Timeout(Exception):
     """The request deadline has passed."""
 
 
+class FormatError(Exception):
+    """Response was weird."""
+
+
 def authority(url: yarl.URL):
     if url.port is None or url.scheme == "http" and url.port == 80 or url.scheme == "https" and url.port == 443:
         return url.host
@@ -282,7 +287,11 @@ class Response:
     def new(cls, header: dict, body: bytes):
         h = {**header}
         code = int(h.pop(":status", "0"))
-        return cls(code, h, json.loads(body) if body else None)
+        logging.info("got %s %s", code, body)
+        try:
+            return cls(code, h, json.loads(body) if body else None)
+        except json.JSONDecodeError:
+            raise FormatError(f"Not JSON: {body[:20]}")
 
 
 async def test(c, i):
@@ -297,7 +306,7 @@ async def test(c, i):
 async def test_many():
     try:
         async with Connection("https://localhost:2197") as c:
-            asyncio.gather(*[test(c, i) for i in range(-5, 20)])
+            await asyncio.gather(*[test(c, i) for i in range(-2, 200)])
     except Closed:
         logging.warning("Oops, closed")
 
