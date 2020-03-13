@@ -5,6 +5,7 @@ import logging
 import math
 import ssl
 import time
+import yarl
 from dataclasses import dataclass, field
 from unittest.mock import patch
 from typing import List, Dict, Any, Tuple
@@ -215,7 +216,6 @@ class Connection:
             # FIXME report that connection is busted
 
 
-
 class Blocked(Exception):
     """This connection can't send more data at this point, try another or later."""
 
@@ -228,10 +228,19 @@ class Timeout(Exception):
     """The request deadline has passed."""
 
 
+def authority(url: yarl.URL):
+    if url.port is None or url.scheme == "http" and url.port == 80 or url.scheme == "https" and url.port == 443:
+        return url.host
+    else:
+        return f"{url.host}:{url.port}"
+
+
 async def test():
     try:
+        url = "https://localhost:2197/3/device/aa?q=1"
+        url = yarl.URL(url)
         async with Connection() as c:
-            pseudo = dict(method="POST", scheme="https", authority="localhost:2197", path="/3/device/aa")
+            pseudo = dict(method="POST", scheme=url.scheme, authority=authority(url), path=url.path_qs)
             header = dict(foo="bar")
             header = tuple((f":{k}", v) for k, v in pseudo.items()) + tuple(header.items())
             data = json.dumps(dict(bar="baz")).encode("utf-8")
