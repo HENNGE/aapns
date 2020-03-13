@@ -91,7 +91,11 @@ class Connection:
 
     @property
     def blocked(self):
-        return self.closing or self.closed or self.conn.outbound_flow_control_window <= REQUIRED_FREE_SPACE
+        return (
+            self.closing
+            or self.closed
+            or self.conn.outbound_flow_control_window <= REQUIRED_FREE_SPACE
+        )
 
     async def __aexit__(self, exc_type, exc, tb):
         self.closing = True
@@ -245,7 +249,13 @@ class FormatError(Exception):
 
 
 def authority(url: yarl.URL):
-    if url.port is None or url.scheme == "http" and url.port == 80 or url.scheme == "https" and url.port == 443:
+    if (
+        url.port is None
+        or url.scheme == "http"
+        and url.port == 80
+        or url.scheme == "https"
+        and url.port == 443
+    ):
         return url.host
     else:
         return f"{url.host}:{url.port}"
@@ -259,13 +269,13 @@ class Request:
 
     @classmethod
     def new(
-            cls,
-            url: str,
-            header: Optional[dict],
-            data: dict,
-            timeout: Optional[float] = None,
-            deadline: Optional[float] = None,
-            ):
+        cls,
+        url: str,
+        header: Optional[dict],
+        data: dict,
+        timeout: Optional[float] = None,
+        deadline: Optional[float] = None,
+    ):
         if timeout is not None and deadline is not None:
             raise ValueError("Specify timeout or deadline, but not both")
         elif timeout is not None:
@@ -274,8 +284,12 @@ class Request:
             deadline = math.inf
 
         url = yarl.URL(url)
-        pseudo = dict(method="POST", scheme=url.scheme, authority=authority(url), path=url.path_qs)
-        header = tuple((f":{k}", v) for k, v in pseudo.items()) + tuple((header or {}).items())
+        pseudo = dict(
+            method="POST", scheme=url.scheme, authority=authority(url), path=url.path_qs
+        )
+        header = tuple((f":{k}", v) for k, v in pseudo.items()) + tuple(
+            (header or {}).items()
+        )
         return cls(header, json.dumps(data).encode("utf-8"), deadline)
 
 
@@ -298,12 +312,17 @@ class Response:
 
 async def test(c, i):
     try:
-        req = Request.new(f"https://localhost:2197/3/device/aaa-{i}",
-                dict(foo="bar"), dict(baz=42), timeout = i * .1)
+        req = Request.new(
+            f"https://localhost:2197/3/device/aaa-{i}",
+            dict(foo="bar"),
+            dict(baz=42),
+            timeout=i * 0.1,
+        )
         resp = await c.post(req)
         logging.info("%s %s %s", i, resp.code, resp.data)
     except (Timeout, Blocked, Closed) as e:
         logging.info("%s %r", i, e)
+
 
 async def test_many():
     try:
