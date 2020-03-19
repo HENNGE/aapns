@@ -19,7 +19,10 @@ class Controller:
             cherrypy.request.request_line,
             "\n                   ".join(map(str, cherrypy.request.headers.items())),
         )
-        assert cherrypy.request.method == "POST"
+        if cherrypy.request.method != "POST":
+            # assume it's a load-testing tool
+            return json.dumps({"test": True})
+
         body = cherrypy.request.body.read()
         data = json.loads(body)
         logging.info(

@@ -12,7 +12,12 @@ services:
     init: true
     ports:
       - "8123:8080"
-        #volumes:
+    ulimits:
+      nproc: 65535
+      nofile:
+        soft: 20000
+        hard: 40000
+    #volumes:
         #- type: bind
         #source: /Users/dima.tisnek/minio-data
         #target: /data

@@ -334,7 +334,7 @@ async def test(c, i):
 async def test_many():
     try:
         async with Connection("https://localhost:2197") as c:
-            await asyncio.gather(*[test(c, i) for i in range(-2, 200, 2)])
+            await asyncio.gather(*[test(c, i) for i in range(-2, 2000, 2)])
     except Closed:
         logging.warning("Oops, closed")
 
