@@ -46,6 +46,7 @@ class Connection:
     closed = closing = False
     bg = None
     channels: Dict[int, Channel]
+    max_concurrent_streams = 100  # recommended in RFC7540#section-6.5.2
 
     def __init__(self, base_url: str):
         self.channels = dict()
@@ -95,6 +96,9 @@ class Connection:
             self.closing
             or self.closed
             or self.conn.outbound_flow_control_window <= REQUIRED_FREE_SPACE
+            # FIXME accidentally quadratic: .openxx iterates over all streams
+            # could be kinda fixed by caching with clever invalidation...
+            or self.conn.open_outbound_streams >= self.max_concurrent_streams
         )
 
     async def __aexit__(self, exc_type, exc, tb):
@@ -141,6 +145,13 @@ class Connection:
                     return
 
                 for event in self.conn.receive_data(data):
+                    if isinstance(event, h2.events.RemoteSettingsChanged):
+                        logging.debug("rcv %s", event)
+                        m = event.changed_settings.get(h2.settings.SettingCodes.MAX_CONCURRENT_STREAMS)
+                        if m:
+                            self.max_concurrent_streams = m.new_value
+                    elif isinstance(event, h2.events.WindowUpdated) and not event.stream_id:
+                        logging.debug("rcv %s", event)
                     sid = getattr(event, "stream_id", 0)
                     error = getattr(event, "error_code", None)
                     ch = self.channels.get(sid)
@@ -169,7 +180,12 @@ class Connection:
 
                 self.please_write.set()
                 # FIXME notify users about possible change to `.blocked`
-                # FIXME more selective: only on h2.events.WindowUpdated
+                # FIXME selective:
+                # * h2.events.WindowUpdated
+                # * max_concurrent_streams change
+                # * [maybe] starting a stream
+                # * a stream getting closed (but not half-closed)
+                # * closing / closed change
         except Exception:
             logging.exception("background read task died")
             # FIXME report that connection is busted
@@ -317,27 +333,36 @@ class Response:
             raise FormatError(f"Not JSON: {body[:20]!r}")
 
 
+import collections
+stats = collections.defaultdict(int)
+
 async def test(c, i):
     try:
         req = Request.new(
             f"https://localhost:2197/3/device/aaa-{i}",
             dict(foo="bar"),
             dict(baz=42),
-            timeout=i * 0.1,
+            timeout=min(i * 0.1, 10),
         )
         resp = await c.post(req)
         logging.info("%s %s %s", i, resp.code, resp.data)
+        stats[resp.code] += 1
     except (Timeout, Blocked, Closed) as e:
         logging.info("%s %r", i, e)
+        stats[repr(e)] += 1
 
 
 async def test_many():
     try:
         async with Connection("https://localhost:2197") as c:
+            # FIXME how come it's worse with the initial wait?
+            await asyncio.sleep(.1)
             await asyncio.gather(*[test(c, i) for i in range(-2, 2000, 2)])
     except Closed:
         logging.warning("Oops, closed")
+    finally:
+        print(stats)
 
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.DEBUG)
 asyncio.run(test_many())
