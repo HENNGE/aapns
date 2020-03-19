@@ -7,8 +7,29 @@ import cherrypy
 class Controller:
     @cherrypy.expose
     def default(*vpath, **kw):
+        logging.info(
+            """
+            method %r
+            base %r
+            request_line %r
+            header %s
+            """,
+            cherrypy.request.method,
+            cherrypy.request.base,
+            cherrypy.request.request_line,
+            "\n                   ".join(map(str, cherrypy.request.headers.items())),
+        )
         assert cherrypy.request.method == "POST"
-        data = json.load(cherrypy.request.body)
+        body = cherrypy.request.body.read()
+        data = json.loads(body)
+        logging.info(
+            """
+            body %r
+            json %r
+            """,
+            body,
+            data,
+        )
         # {"aps": {"alert": {"body": "123"}}}
         # cherrypy.request.path_info
         # "/3/device/hexhexhex"
