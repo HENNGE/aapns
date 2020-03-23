@@ -3,7 +3,8 @@ package main
 import (
 	"log"
 	"net/http"
-        "time"
+	"net/http/httputil"
+	"time"
 )
 
 func main() {
@@ -13,7 +14,13 @@ func main() {
 }
 
 func handle(w http.ResponseWriter, r *http.Request) {
+	dump, err := httputil.DumpRequest(r, true)
+	if err != nil {
+		log.Fatal(err)
+		return
+	}
+	log.Printf("%q", dump)
 	log.Printf("req on protocol %s", r.Proto)
-        time.Sleep(time.Second);
+	time.Sleep(time.Second)
 	w.Write([]byte("{}"))
 }
