@@ -212,6 +212,7 @@ class Connection:
         self.conn.send_headers(sid, req.header, end_stream=False)
         self.conn.increment_flow_control_window(2 ** 16, stream_id=sid)
         self.conn.send_data(sid, req.body, end_stream=True)
+        self.please_write.set()
 
         try:
             while not self.closing:
@@ -244,13 +245,14 @@ class Connection:
                 while not data:
                     if self.closed:
                         return
-                    data = self.conn.data_to_send()
-                    if not data:
+
+                    if data:= self.conn.data_to_send():
+                        self.w.write(data)
+                        await self.w.drain()
+                    else:
                         await self.please_write.wait()
                         self.please_write.clear()
 
-                self.w.write(data)
-                await self.w.drain()
         except Exception:
             logging.exception("background write task died")
             # FIXME report that connection is busted
@@ -352,17 +354,20 @@ async def test(c, i):
         stats[repr(e)] += 1
 
 
-async def test_many():
+async def test_many(count):
     try:
         async with Connection("https://localhost:2197") as c:
             # FIXME how come it's worse with the initial wait?
             await asyncio.sleep(.1)
-            await asyncio.gather(*[test(c, i) for i in range(-2, 2000, 2)])
+            await asyncio.gather(*[test(c, i) for i in range(-2, count, 2)])
     except Closed:
         logging.warning("Oops, closed")
     finally:
         print(stats)
 
 
-logging.basicConfig(level=logging.DEBUG)
-asyncio.run(test_many())
+if __name__ == "__main__":
+    import sys
+    # logging.basicConfig(level=logging.DEBUG)
+    logging.basicConfig(level=logging.INFO)
+    asyncio.run(test_many(int(sys.argv[1]) if len(sys.argv) > 1 else 2000))

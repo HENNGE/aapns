@@ -1,0 +1,24 @@
+POST /3/device/26867704540889a484776c1e9cf22b709d72a07af82e10c6403f8cd02db01be5 HTTP/2.0
+Host: localhost:2197
+Accept: */*
+Accept-Encoding: gzip, deflate
+Apns-Priority: 5
+Apns-Push-Type: alert
+Content-Length: 32
+User-Agent: python-httpx/0.11.1
+
+{"aps":{"alert":{"body":"123"}}}
+
+POST /3/device/26867704540889a484776c1e9cf22b709d72a07af82e10c6403f8cd02db01be5 HTTP/2.0
+Host: localhost:2197
+Accept: */*
+Accept-Encoding: gzip, deflate
+Apns-Priority: 5
+Apns-Push-Type: alert
+Content-Length: 36
+User-Agent: python-httpx/0.11.1
+
+{"aps":{"alert":{"loc-key":"😅"}}}
+
+# aapns --verbose --alt-port --client-cert-path .fake-cert  26867704540889a484776c1e9cf22b709d72a07af82e10c6403f8cd02db01be5 simple 123
+# aappns --verbose --alt-port --client-cert-path .fake-cert  26867704540889a484776c1e9cf22b709d72a07af82e10c6403f8cd02db01be5 localized 😅

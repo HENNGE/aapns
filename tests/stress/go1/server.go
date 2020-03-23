@@ -4,6 +4,7 @@ import (
 	"log"
 	"net/http"
 	"net/http/httputil"
+        "os"
 	"time"
 )
 
@@ -19,8 +20,8 @@ func handle(w http.ResponseWriter, r *http.Request) {
 		log.Fatal(err)
 		return
 	}
-	log.Printf("%q", dump)
-	log.Printf("req on protocol %s", r.Proto)
+        os.Stdout.Write(dump)
+        os.Stdout.Write([]byte("\n\n"))
 	time.Sleep(time.Second)
 	w.Write([]byte("{}"))
 }
