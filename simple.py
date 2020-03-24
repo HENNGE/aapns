@@ -3,6 +3,7 @@ import contextlib
 import json
 import logging
 import math
+import random
 import ssl
 import time
 from dataclasses import dataclass, field
@@ -63,7 +64,7 @@ class Connection:
         assert info, "HTTP/2 server is required"
         proto = info.selected_alpn_protocol()
         assert proto == "h2", "Failed to negotiate HTTP/2"
-        # FIXME mauybe add h2 logger with reasonable config
+
         self.conn = h2.connection.H2Connection(
             h2.config.H2Configuration(client_side=True, header_encoding="utf-8")
         )
@@ -138,11 +139,7 @@ class Connection:
             while not self.closed:
                 data = await self.r.read(2 ** 16)
                 if not data:
-                    self.closing = self.closed = True
-                    for sid, ch in self.channels.items():
-                        if ch.fut and not ch.fut.done():
-                            ch.fut.set_exception(Closed())
-                    return
+                    break
 
                 for event in self.conn.receive_data(data):
                     if isinstance(event, h2.events.RemoteSettingsChanged):
@@ -186,6 +183,11 @@ class Connection:
                 # * [maybe] starting a stream
                 # * a stream getting closed (but not half-closed)
                 # * closing / closed change
+            else:
+                self.closing = self.closed = True
+                for sid, ch in self.channels.items():
+                    if ch.fut and not ch.fut.done():
+                        ch.fut.set_exception(Closed())
         except Exception:
             logging.exception("background read task died")
             # FIXME report that connection is busted
@@ -287,6 +289,41 @@ def authority(url: yarl.URL):
         return f"{url.host}:{url.port}"
 
 
+class Pool:
+    """Super-silly, fixed-size connection pool"""
+    closing = closed = False
+    base_url = None
+    N = 10
+    conn = None
+
+    def __init__(self, base_url: str):
+        self.base_url = base_url
+
+    async def __aenter__(self):
+        self.conn = [Connection(self.base_url) for i in range(self.N)]
+        await asyncio.gather(*(c.__aenter__() for c in self.conn))
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        self.closing = True
+        try:
+            await asyncio.gather(*(c.__aexit__(exc_type, exc, tb) for c in self.conn))
+        finally:
+            self.closed = True
+
+    async def post(self, req: "Request") -> "Response":
+        random.shuffle(self.conn)
+        # FIXME handle connection getting closed
+        # FIXME handle connection replacement
+        for c in self.conn:
+            # FIXME super-inefficient, as `.blocked` is already pretty bad
+            if not c.blocked:
+                break
+        else:
+            raise Blocked()
+        return await c.post(req)
+
+
 @dataclass
 class Request:
     header: tuple
@@ -336,9 +373,13 @@ class Response:
 
 
 import collections
+import pytest
 stats = collections.defaultdict(int)
 
-async def test(c, i):
+pytestmark = pytest.mark.asyncio
+
+
+async def one_request(c, i):
     try:
         req = Request.new(
             f"https://localhost:2197/3/device/aaa-{i}",
@@ -347,19 +388,19 @@ async def test(c, i):
             timeout=min(i * 0.1, 10),
         )
         resp = await c.post(req)
-        logging.info("%s %s %s", i, resp.code, resp.data)
+        # logging.info("%s %s %s", i, resp.code, resp.data)
         stats[resp.code] += 1
     except (Timeout, Blocked, Closed) as e:
-        logging.info("%s %r", i, e)
+        # logging.info("%s %r", i, e)
         stats[repr(e)] += 1
 
 
-async def test_many(count):
+async def test_many(count=30000):
     try:
-        async with Connection("https://localhost:2197") as c:
+        async with Pool("https://localhost:2197") as c:
             # FIXME how come it's worse with the initial wait?
             await asyncio.sleep(.1)
-            await asyncio.gather(*[test(c, i) for i in range(-2, count, 2)])
+            await asyncio.gather(*[one_request(c, i) for i in range(-2, count, 2)])
     except Closed:
         logging.warning("Oops, closed")
     finally:
@@ -370,4 +411,4 @@ if __name__ == "__main__":
     import sys
     # logging.basicConfig(level=logging.DEBUG)
     logging.basicConfig(level=logging.INFO)
-    asyncio.run(test_many(int(sys.argv[1]) if len(sys.argv) > 1 else 2000))
+    asyncio.run(test_many(**({"count": int(sys.argv[1])} if len(sys.argv) > 1 else {})))
