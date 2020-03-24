@@ -20,8 +20,7 @@ func handle(w http.ResponseWriter, r *http.Request) {
 		log.Fatal(err)
 		return
 	}
-        os.Stdout.Write(dump)
-        os.Stdout.Write([]byte("\n\n"))
+        os.Stdout.Write(append(dump, "\n\n"...))
 	time.Sleep(time.Second)
 	w.Write([]byte("{}"))
 }
