@@ -144,10 +144,15 @@ class Connection:
                 for event in self.conn.receive_data(data):
                     if isinstance(event, h2.events.RemoteSettingsChanged):
                         logging.debug("rcv %s", event)
-                        m = event.changed_settings.get(h2.settings.SettingCodes.MAX_CONCURRENT_STREAMS)
+                        m = event.changed_settings.get(
+                            h2.settings.SettingCodes.MAX_CONCURRENT_STREAMS
+                        )
                         if m:
                             self.max_concurrent_streams = m.new_value
-                    elif isinstance(event, h2.events.WindowUpdated) and not event.stream_id:
+                    elif (
+                        isinstance(event, h2.events.WindowUpdated)
+                        and not event.stream_id
+                    ):
                         logging.debug("rcv %s", event)
                     sid = getattr(event, "stream_id", 0)
                     error = getattr(event, "error_code", None)
@@ -248,7 +253,7 @@ class Connection:
                     if self.closed:
                         return
 
-                    if data:= self.conn.data_to_send():
+                    if data := self.conn.data_to_send():
                         self.w.write(data)
                         await self.w.drain()
                     else:
@@ -291,6 +296,7 @@ def authority(url: yarl.URL):
 
 class Pool:
     """Super-silly, fixed-size connection pool"""
+
     closing = closed = False
     base_url = None
     N = 10
@@ -353,7 +359,18 @@ class Request:
         h = tuple((f":{k}", v) for k, v in pseudo.items()) + tuple(
             (header or {}).items()
         )
-        return cls(h, json.dumps(data).encode("utf-8"), deadline)
+        # aapns:master sends this header
+        #   [Host], Accept, Accept-Encoding, Apns-Priority, Apns-Push-Type, Content-Length, User-Agent
+        # this branch sends this header
+        #   [Host], Apns-Priority, Apns-Push-Type
+        #
+        # FIXME 1.
+        # Does APN require Content-Length header field?
+        # It's optional in HTTP/2... Does Apple need it?
+        #
+        # FIXME 2.
+        # Apns-Expiration should be derived from `deadline`
+        return cls(h, json.dumps(data, ensure_ascii=False).encode("utf-8"), deadline)
 
 
 @dataclass
@@ -374,6 +391,7 @@ class Response:
 
 import collections
 import pytest
+
 stats = collections.defaultdict(int)
 
 pytestmark = pytest.mark.asyncio
@@ -399,7 +417,7 @@ async def test_many(count=30000):
     try:
         async with Pool("https://localhost:2197") as c:
             # FIXME how come it's worse with the initial wait?
-            await asyncio.sleep(.1)
+            await asyncio.sleep(0.1)
             await asyncio.gather(*[one_request(c, i) for i in range(-2, count, 2)])
     except Closed:
         logging.warning("Oops, closed")
@@ -407,8 +425,92 @@ async def test_many(count=30000):
         print(stats)
 
 
+async def send_several(base_url, token, requests):
+    try:
+        async with Connection(base_url) as c:
+            tasks = []
+            for r in requests:
+                logging.info("Sleeping a bit")
+                await asyncio.sleep(1)
+
+                async def post(r):
+                    try:
+                        logging.info("%s", r)
+                        logging.info("%s", await c.post(r))
+                    except Exception as rv:
+                        logging.info("%s", rv)
+
+                # FIXME 2. Optional header fields
+                # Apns-Id, Apns-Expiration, Apns-Topic, Apns-Collapse-Id
+                tasks.append(asyncio.create_task(post(r)))
+            await asyncio.gather(*tasks)
+    finally:
+        print(stats)
+
+
 if __name__ == "__main__":
     import sys
-    # logging.basicConfig(level=logging.DEBUG)
+
     logging.basicConfig(level=logging.INFO)
-    asyncio.run(test_many(**({"count": int(sys.argv[1])} if len(sys.argv) > 1 else {})))
+    # performance test
+    # asyncio.run(test_many(**({"count": int(sys.argv[1])} if len(sys.argv) > 1 else {})))
+
+    ssl_context = ssl.create_default_context()
+    ssl_context.options |= ssl.OP_NO_TLSv1
+    ssl_context.options |= ssl.OP_NO_TLSv1_1
+    ssl_context.set_alpn_protocols(["h2"])
+
+    argv = sys.argv[1:]
+    if "--prod" in argv:
+        argv.remove("--prod")
+        host = "api.push.apple.com"
+    elif "--sandbox" in argv:
+        argv.remove("--sandbox")
+        host = "api.development.push.apple.com"
+    elif "--local" in argv:
+        argv.remove("--local")
+        host = "localhost"
+        ssl_context.load_verify_locations(cafile="tests/stress/nginx/cert.pem")
+    else:
+        raise Exception("Must pass flag: --prod/--sandbox/--local")
+
+    if "--alt-port" in argv:
+        argv.remove("--alt-port")
+        port = 2197
+    else:
+        port = 443
+
+    if "simple" in argv:
+        argv.remove("simple")
+        key = "body"
+    elif "localized" in argv:
+        argv.remove("localized")
+        key = "loc-key"
+    else:
+        raise Exception("Must pass command: simple or localized")
+
+    if "--client-cert-path" in argv:
+        i = argv.index("--client-cert-path")
+        cert = argv[i+1]
+        del argv[i:i+2]
+        ssl_context.load_cert_chain(certfile=cert, keyfile=cert)
+    else:
+        raise Exception("Must pass flag: --client-cert-path path-file.pem")
+
+    if not argv:
+        raise Exception("Must pass token")
+    token = argv[0]
+    del argv[0]
+
+    if not argv:
+        raise Exception("Usage: python simple.py [opts] token cmd message-1 message-2 ...")
+
+    base_url = f"https://{host}:{port}"
+    requests = [Request.new(
+                    f"{base_url}/3/device/{token}",
+                    {"Apns-Priority": "5", "Apns-Push-Type": "alert"},
+                    {"aps": {"alert": {key: text}}},
+                    timeout=10,
+                ) for text in argv]
+
+    asyncio.run(send_several(base_url, token, requests))
