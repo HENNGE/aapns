@@ -142,6 +142,7 @@ class Connection:
                     break
 
                 for event in self.conn.receive_data(data):
+                    logging.info("APN: %s", event)
                     if isinstance(event, h2.events.RemoteSettingsChanged):
                         logging.debug("rcv %s", event)
                         m = event.changed_settings.get(
@@ -445,7 +446,8 @@ async def send_several(base_url, token, requests):
                 tasks.append(asyncio.create_task(post(r)))
             await asyncio.gather(*tasks)
     finally:
-        print(stats)
+        # print(stats)
+        pass
 
 
 if __name__ == "__main__":
