@@ -44,6 +44,11 @@ class Channel:
 
 
 class Connection:
+    # FIXME document connection termination states:
+    # * not closing: active connection
+    # * closing and not closed: graceful shutdown
+    # * closed: totally dead
+    # * fixme: __aexit__() finished
     closed = closing = False
     bg = None
     channels: Dict[int, Channel]
@@ -143,6 +148,7 @@ class Connection:
 
                 for event in self.conn.receive_data(data):
                     logging.info("APN: %s", event)
+
                     if isinstance(event, h2.events.RemoteSettingsChanged):
                         logging.debug("rcv %s", event)
                         m = event.changed_settings.get(
@@ -155,6 +161,7 @@ class Connection:
                         and not event.stream_id
                     ):
                         logging.debug("rcv %s", event)
+
                     sid = getattr(event, "stream_id", 0)
                     error = getattr(event, "error_code", None)
                     ch = self.channels.get(sid)
@@ -267,7 +274,7 @@ class Connection:
 
 
 class Blocked(Exception):
-    """This connection can't send more data at this point, try another or later."""
+    """This connection can't send more data at this point, can try later."""
 
 
 class Closed(Exception):
@@ -300,21 +307,66 @@ class Pool:
 
     closing = closed = False
     base_url = None
-    N = 10
+    size = 10
     conn = None
+    dying = None
 
     def __init__(self, base_url: str):
         self.base_url = base_url
+        self.conn = set()
+        self.dying = set()
+
+    async def background_resize(self):
+        while True:
+            if self.closing or self.closed:
+                return
+
+            for c in list(self.conn):
+                if c.closing:
+                    self.conn.remove(c)
+                    self.dying.add(c)
+
+            while len(self.conn) > self.size:
+                c = self.conn.pop()
+                c.closing = True
+                self.dying.add(c)
+
+            for c in list(self.dying):
+                if c.closed:
+                    self.dying.remove(c)
+                elif not c.channels:
+                    self.dying.remove(c)
+                    await c.__aexit__(None, None, None)
+
+            while len(self.conn) < self.size:
+                c = Connection(self.base_url)
+                try:
+                    await c.__aenter__()
+                    self.conn.add(c)
+                except Exception:
+                    logging.exception("New connection failed")
+                    break
+
+            # FIXME a way to trigger resize
+            await asyncio.sleep(1)
 
     async def __aenter__(self):
-        self.conn = [Connection(self.base_url) for i in range(self.N)]
+        self.bg = asyncio.create_task(self.background_resize())
+        self.conn = [Connection(self.base_url) for i in range(self.size)]
         await asyncio.gather(*(c.__aenter__() for c in self.conn))
         return self
 
     async def __aexit__(self, exc_type, exc, tb):
         self.closing = True
         try:
-            await asyncio.gather(*(c.__aexit__(exc_type, exc, tb) for c in self.conn))
+            if self.bg:
+                self.bg.cancel()
+                await self.bg
+
+            await asyncio.gather(
+                    *(c.__aexit__(exc_type, exc, tb) for c in self.conn),
+                    *(c.__aexit__(exc_type, exc, tb) for c in self.dying),
+                    )
         finally:
             self.closed = True
 
@@ -426,7 +478,7 @@ async def test_many(count=30000):
         print(stats)
 
 
-async def send_several(base_url, token, requests):
+async def send_several(base_url, requests):
     try:
         async with Connection(base_url) as c:
             tasks = []
@@ -500,19 +552,19 @@ if __name__ == "__main__":
         raise Exception("Must pass flag: --client-cert-path path-file.pem")
 
     if not argv:
-        raise Exception("Must pass token")
-    token = argv[0]
+        raise Exception("Must pass device_token")
+    device_token = argv[0]
     del argv[0]
 
     if not argv:
-        raise Exception("Usage: python simple.py [opts] token cmd message-1 message-2 ...")
+        raise Exception("Usage: python simple.py [opts] device_token cmd message-1 message-2 ...")
 
     base_url = f"https://{host}:{port}"
     requests = [Request.new(
-                    f"{base_url}/3/device/{token}",
+                    f"{base_url}/3/device/{device_token}",
                     {"Apns-Priority": "5", "Apns-Push-Type": "alert"},
                     {"aps": {"alert": {key: text}}},
                     timeout=10,
                 ) for text in argv]
 
-    asyncio.run(send_several(base_url, token, requests))
+    asyncio.run(send_several(base_url, requests))
