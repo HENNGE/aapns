@@ -35,17 +35,23 @@ ssl_context.load_verify_locations(cafile="tests/stress/nginx/cert.pem")
 MAX_NOTIFICATION_PAYLOAD_SIZE = 5120
 REQUIRED_FREE_SPACE = 6000
 
-# hacks, terrible hacks
-SO_NWRITE = 0x1024  # macOS
+# FIXME set `TCP_NOTSENT_LOWAT` on Linux
+# Presumably it's on for macOS by default
+# https://github.com/dabeaz/curio/issues/83
 
-
-def poke_send_queue(w):
+def poke_send_queue(w, state=""):
     # macOS
-    logging.info("send queue: %s", w._transport._ssl_protocol._transport._sock.getsockopt(socket.SOL_SOCKET, 0x1024))
+    SO_NWRITE = 0x1024
+    logging.info("send queue %s: %s", state, w._transport._ssl_protocol._transport._sock.getsockopt(socket.SOL_SOCKET, 0x1024))
     # Linux
     # FIXME SIOCOUTQ
     # Windows
     # FIXME GetPerTcpConnectionEStats with the TcpConnectionEstatsSendBuff option
+
+
+def set_socket_low_water_mark(w):
+    # TCP_NOTSENT_LOWAT = macOS 0x201, Linux 25
+    w._transport._ssl_protocol._transport._sock.setsockopt(socket.IPPROTO_TCP, 0x201, 100)
 
 
 @dataclass
@@ -64,9 +70,13 @@ class Connection:
     # * closed: totally dead
     # * fixme: __aexit__() finished
     closed = closing = False
-    bg = None
+    r = w = bgr = bgw = please_write = None
     channels: Dict[int, Channel]
     max_concurrent_streams = 100  # recommended in RFC7540#section-6.5.2
+    last_new_sid = last_sent_sid = -1  # client streams are odd
+
+    def __repr__(self):
+        return f"<Connection to:{self.host}:{self.port} state:{self.state} buffered:{self.buffered_requests} inflight:{self.inflight_requests}>"
 
     def __init__(self, base_url: str):
         self.channels = dict()
@@ -79,6 +89,7 @@ class Connection:
         self.r, self.w = await asyncio.open_connection(
             self.host, self.port, ssl=ssl_context, ssl_handshake_timeout=5
         )
+        set_socket_low_water_mark(self.w)
         info = self.w.get_extra_info("ssl_object")
         assert info, "HTTP/2 server is required"
         proto = info.selected_alpn_protocol()
@@ -109,6 +120,24 @@ class Connection:
         # FIXME we could wait for settings frame from the server,
         # to tell us how much we can actually send, as initial window is small
         return self
+
+    @property
+    def state(self):
+        if not self.please_write: return "new"
+        elif not self.bgw: return "starting"
+        elif not self.closing: return "active"
+        elif not self.closed: return "graceful-shutdown"
+        else: return "closed"
+
+    @property
+    def buffered_requests(self):
+        """ This metric shows how "slow" we are sending requests out. """
+        return (self.last_new_sid - self.last_sent_sid) // 2
+
+    @property
+    def inflight_requests(self):
+        """ This metric shows how "slow" the server is to respond. """
+        return len(self.channels)
 
     @property
     def blocked(self):
@@ -231,6 +260,8 @@ class Connection:
 
         assert sid not in self.channels
 
+        self.last_new_sid = sid
+
         ch = self.channels[sid] = Channel(sid, None, [])
         self.conn.send_headers(sid, req.header, end_stream=False)
         self.conn.increment_flow_control_window(2 ** 16, stream_id=sid)
@@ -269,11 +300,16 @@ class Connection:
                         return
 
                     if data := self.conn.data_to_send():
-                        poke_send_queue(self.w)
+                        poke_send_queue(self.w, 1)
                         self.w.write(data)
-                        poke_send_queue(self.w)
+                        poke_send_queue(self.w, 2)
+                        st = time.monotonic()
+                        last_sid = self.last_new_sid
                         await self.w.drain()
-                        poke_send_queue(self.w)
+                        # FIXME test his on slow network
+                        logging.info("send drain took %s", time.monotonic() - st)
+                        poke_send_queue(self.w, 3)
+                        self.last_sent_sid = last_sid
                     else:
                         await self.please_write.wait()
                         self.please_write.clear()
@@ -311,114 +347,6 @@ def authority(url: yarl.URL):
         return url.host
     else:
         return f"{url.host}:{url.port}"
-
-
-class Pool:
-    """Super-silly, fixed-size connection pool"""
-
-    closing = closed = False
-    base_url = None
-    size = 10
-    conn = None
-    dying = None
-
-    def __init__(self, base_url: str):
-        self.base_url = base_url
-        self.conn = set()
-        self.dying = set()
-
-    async def background_resize(self):
-        while True:
-            if self.closing or self.closed:
-                return
-
-            for c in list(self.conn):
-                if c.closing:
-                    self.conn.remove(c)
-                    self.dying.add(c)
-
-            while len(self.conn) > self.size:
-                c = self.conn.pop()
-                c.closing = True
-                self.dying.add(c)
-
-            for c in list(self.dying):
-                if c.closed:
-                    self.dying.remove(c)
-                elif not c.channels:
-                    self.dying.remove(c)
-                    await c.__aexit__(None, None, None)
-
-            while len(self.conn) < self.size:
-                c = Connection(self.base_url)
-                try:
-                    await c.__aenter__()
-                    self.conn.add(c)
-                except Exception:
-                    logging.exception("New connection failed")
-                    break
-
-            # FIXME a way to trigger resize
-            await asyncio.sleep(1)
-
-    async def __aenter__(self):
-        self.bg = asyncio.create_task(self.background_resize())
-        self.conn = [Connection(self.base_url) for i in range(self.size)]
-        await asyncio.gather(*(c.__aenter__() for c in self.conn))
-        return self
-
-    async def __aexit__(self, exc_type, exc, tb):
-        self.closing = True
-        try:
-            if self.bg:
-                self.bg.cancel()
-                await self.bg
-
-            await asyncio.gather(
-                *(c.__aexit__(exc_type, exc, tb) for c in self.conn),
-                *(c.__aexit__(exc_type, exc, tb) for c in self.dying),
-            )
-        finally:
-            self.closed = True
-
-    async def post_once(self, req: "Request") -> "Response":
-        # FIXME ideally, follow weighted round-robin discipline:
-        # * generally allocate requests evenly across connections
-        # * but keep load for few last connections lighter
-        #   to prevent all connections expiring at once
-        # * ideally track connection backlog
-
-        # FIXME handle connection getting closed
-        # FIXME handle connection replacement
-        conns = list(self.conn)
-        random.shuffle(conns)
-        for c in conns:
-            if self.closing:
-                raise Closed()
-            try:
-                return await c.post(req)
-            except (Blocked, Closed):
-                pass
-        else:
-            raise Blocked()
-
-    async def post(self, req: "Request") -> "Response":
-        for delay in (10 ** i for i in itertools.count(-3, 0.5)):
-            if self.closing:
-                raise Closed()
-
-            try:
-                return await self.post_once(req)
-            except Blocked:
-                pass
-
-            if self.closing:
-                raise Closed()
-
-            if time.monotonic() + delay > req.deadline:
-                raise Timeout()
-
-            await asyncio.sleep(delay)
 
 
 @dataclass
@@ -480,72 +408,30 @@ class Response:
             raise FormatError(f"Not JSON: {body[:20]!r}")
 
 
-import collections
-import pytest
-
-stats = collections.defaultdict(int)
-
-pytestmark = pytest.mark.asyncio
-
-
-async def one_request(c, i):
-    try:
-        req = Request.new(
-            f"https://localhost:2197/3/device/aaa-{i}",
-            dict(foo="bar"),
-            dict(baz=42),
-            timeout=min(i * 0.1, 10),
-        )
-        resp = await c.post(req)
-        # logging.info("%s %s %s", i, resp.code, resp.data)
-        stats[resp.code] += 1
-    except (Timeout, Blocked, Closed) as e:
-        # logging.info("%s %r", i, e)
-        stats[repr(e)] += 1
-
-
-async def test_many(count=30000):
-    try:
-        async with Pool("https://localhost:2197") as c:
-            # FIXME how come it's worse with the initial wait?
-            await asyncio.sleep(0.1)
-            await asyncio.gather(*[one_request(c, i) for i in range(-2, count, 2)])
-    except Closed:
-        logging.warning("Oops, closed")
-    finally:
-        print(stats)
-
-
 async def send_several(base_url, requests):
-    try:
-        async with Connection(base_url) as c:
-            tasks = []
-            for r in requests:
-                logging.info("Sleeping a bit")
-                await asyncio.sleep(1)
+    async with Connection(base_url) as c:
+        tasks = []
+        for r in requests:
+            logging.info("Sleeping a bit")
+            await asyncio.sleep(1)
 
-                async def post(r):
-                    try:
-                        logging.info("%s", r)
-                        logging.info("%s", await c.post(r))
-                    except Exception as rv:
-                        logging.info("%s", rv)
+            async def post(r):
+                try:
+                    logging.info("%s", r)
+                    logging.info("%s", await c.post(r))
+                except Exception as rv:
+                    logging.info("%s", rv)
 
-                # FIXME 2. Optional header fields
-                # Apns-Id, Apns-Expiration, Apns-Topic, Apns-Collapse-Id
-                tasks.append(asyncio.create_task(post(r)))
-            await asyncio.gather(*tasks)
-    finally:
-        # print(stats)
-        pass
+            # FIXME 2. Optional header fields
+            # Apns-Id, Apns-Expiration, Apns-Topic, Apns-Collapse-Id
+            tasks.append(asyncio.create_task(post(r)))
+        await asyncio.gather(*tasks)
 
 
 if __name__ == "__main__":
     import sys
 
     logging.basicConfig(level=logging.INFO)
-    # performance test
-    # asyncio.run(test_many(**({"count": int(sys.argv[1])} if len(sys.argv) > 1 else {})))
 
     ssl_context = ssl.create_default_context()
     ssl_context.options |= ssl.OP_NO_TLSv1
