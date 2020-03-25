@@ -32,6 +32,15 @@ class Pool:
     conn = None
     dying = None
 
+    def __str__(self):
+        alive = "\n".join(map(str, self.conn))
+        dying = "\n".join(map(str, self.dying))
+        return f"""<Pool
+            alive:
+            {alive}
+            dying:
+            {dying}>"""
+
     def __init__(self, base_url: str):
         self.base_url = base_url
         self.conn = set()
@@ -107,7 +116,6 @@ class Pool:
                 raise Closed()
             if c.closed:
                 continue
-            logging.info("Trying %s", c)
             try:
                 return await c.post(req)
             except (Blocked, Closed):
@@ -159,6 +167,14 @@ async def one_request(c, i):
 
 
 async def test_many(count=1000):
+    c = None
+    async def monitor():
+        while True:
+            logging.info("Pool %s", c)
+            await asyncio.sleep(.1)
+
+    mon = asyncio.create_task(monitor())
+
     try:
         async with Pool("https://localhost:2197") as c:
             # FIXME how come it's worse with the initial wait?
@@ -168,6 +184,7 @@ async def test_many(count=1000):
         logging.warning("Oops, closed")
     finally:
         print(stats)
+        mon.cancel()
 
 
 if __name__ == "__main__":
