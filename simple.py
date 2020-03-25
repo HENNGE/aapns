@@ -6,6 +6,7 @@ import logging
 import math
 import random
 import ssl
+import socket
 import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
@@ -33,6 +34,18 @@ ssl_context.load_verify_locations(cafile="tests/stress/nginx/cert.pem")
 # Data is subject to framing and padding, but those are minor.
 MAX_NOTIFICATION_PAYLOAD_SIZE = 5120
 REQUIRED_FREE_SPACE = 6000
+
+# hacks, terrible hacks
+SO_NWRITE = 0x1024  # macOS
+
+
+def poke_send_queue(w):
+    # macOS
+    logging.info("send queue: %s", w._transport._ssl_protocol._transport._sock.getsockopt(socket.SOL_SOCKET, 0x1024))
+    # Linux
+    # FIXME SIOCOUTQ
+    # Windows
+    # FIXME GetPerTcpConnectionEStats with the TcpConnectionEstatsSendBuff option
 
 
 @dataclass
@@ -256,8 +269,11 @@ class Connection:
                         return
 
                     if data := self.conn.data_to_send():
+                        poke_send_queue(self.w)
                         self.w.write(data)
+                        poke_send_queue(self.w)
                         await self.w.drain()
+                        poke_send_queue(self.w)
                     else:
                         await self.please_write.wait()
                         self.please_write.clear()
