@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+import itertools
 import json
 import logging
 import math
@@ -110,14 +111,7 @@ class Connection:
     async def __aexit__(self, exc_type, exc, tb):
         self.closing = True
         try:
-            if isinstance(exc_type, asyncio.CancelledError):
-                logging.warning("FIXME implement cancellation")
-            elif exc_type:
-                # hard quit: code block raised exception
-                # it may be that the connection is already closed
-                # hopefully error handling can be same
-                pass
-
+            # FIXME distinguish between cancellation and context exception
             if self.bgw:
                 self.bgw.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
@@ -196,14 +190,13 @@ class Connection:
                 # * [maybe] starting a stream
                 # * a stream getting closed (but not half-closed)
                 # * closing / closed change
-            else:
-                self.closing = self.closed = True
-                for sid, ch in self.channels.items():
-                    if ch.fut and not ch.fut.done():
-                        ch.fut.set_exception(Closed())
         except Exception:
             logging.exception("background read task died")
-            # FIXME report that connection is busted
+        finally:
+            self.closing = self.closed = True
+            for sid, ch in self.channels.items():
+                if ch.fut and not ch.fut.done():
+                    ch.fut.set_exception(Closed())
 
     async def post(self, req: "Request") -> "Response":
         assert len(req.body) <= MAX_NOTIFICATION_PAYLOAD_SIZE
@@ -211,6 +204,8 @@ class Connection:
         now = time.monotonic()
         if now > req.deadline:
             raise Timeout()
+        if self.closing or self.closed:
+            raise Closed()
         if self.blocked:
             raise Blocked()
 
@@ -253,7 +248,6 @@ class Connection:
 
     async def background_write(self):
         try:
-            # FIXME what should writer do on `closing and not closed`?
             while not self.closed:
                 data = None
 
@@ -270,7 +264,8 @@ class Connection:
 
         except Exception:
             logging.exception("background write task died")
-            # FIXME report that connection is busted
+        finally:
+            self.closed = True
 
 
 class Blocked(Exception):
@@ -364,23 +359,50 @@ class Pool:
                 await self.bg
 
             await asyncio.gather(
-                    *(c.__aexit__(exc_type, exc, tb) for c in self.conn),
-                    *(c.__aexit__(exc_type, exc, tb) for c in self.dying),
-                    )
+                *(c.__aexit__(exc_type, exc, tb) for c in self.conn),
+                *(c.__aexit__(exc_type, exc, tb) for c in self.dying),
+            )
         finally:
             self.closed = True
 
-    async def post(self, req: "Request") -> "Response":
-        random.shuffle(self.conn)
+    async def post_once(self, req: "Request") -> "Response":
+        # FIXME ideally, follow weighted round-robin discipline:
+        # * generally allocate requests evenly across connections
+        # * but keep load for few last connections lighter
+        #   to prevent all connections expiring at once
+        # * ideally track connection backlog
+
         # FIXME handle connection getting closed
         # FIXME handle connection replacement
-        for c in self.conn:
-            # FIXME super-inefficient, as `.blocked` is already pretty bad
-            if not c.blocked:
-                break
+        conns = list(self.conn)
+        random.shuffle(conns)
+        for c in conns:
+            if self.closing:
+                raise Closed()
+            try:
+                return await c.post(req)
+            except (Blocked, Closed):
+                pass
         else:
             raise Blocked()
-        return await c.post(req)
+
+    async def post(self, req: "Request") -> "Response":
+        for delay in (10 ** i for i in itertools.count(-3, 0.5)):
+            if self.closing:
+                raise Closed()
+
+            try:
+                return await self.post_once(req)
+            except Blocked:
+                pass
+
+            if self.closing:
+                raise Closed()
+
+            if time.monotonic() + delay > req.deadline:
+                raise Timeout()
+
+            await asyncio.sleep(delay)
 
 
 @dataclass
@@ -545,8 +567,8 @@ if __name__ == "__main__":
 
     if "--client-cert-path" in argv:
         i = argv.index("--client-cert-path")
-        cert = argv[i+1]
-        del argv[i:i+2]
+        cert = argv[i + 1]
+        del argv[i : i + 2]
         ssl_context.load_cert_chain(certfile=cert, keyfile=cert)
     else:
         raise Exception("Must pass flag: --client-cert-path path-file.pem")
@@ -557,14 +579,19 @@ if __name__ == "__main__":
     del argv[0]
 
     if not argv:
-        raise Exception("Usage: python simple.py [opts] device_token cmd message-1 message-2 ...")
+        raise Exception(
+            "Usage: python simple.py [opts] device_token cmd message-1 message-2 ..."
+        )
 
     base_url = f"https://{host}:{port}"
-    requests = [Request.new(
-                    f"{base_url}/3/device/{device_token}",
-                    {"Apns-Priority": "5", "Apns-Push-Type": "alert"},
-                    {"aps": {"alert": {key: text}}},
-                    timeout=10,
-                ) for text in argv]
+    requests = [
+        Request.new(
+            f"{base_url}/3/device/{device_token}",
+            {"Apns-Priority": "5", "Apns-Push-Type": "alert"},
+            {"aps": {"alert": {key: text}}},
+            timeout=10,
+        )
+        for text in argv
+    ]
 
     asyncio.run(send_several(base_url, requests))
