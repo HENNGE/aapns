@@ -17,18 +17,6 @@ import h2.connection
 import h2.settings
 import yarl
 
-client_cert_path = ".fake-cert"
-
-ssl_context = ssl.create_default_context()
-ssl_context.options |= ssl.OP_NO_TLSv1
-ssl_context.options |= ssl.OP_NO_TLSv1_1
-# Old-school auth
-ssl_context.load_cert_chain(certfile=client_cert_path, keyfile=client_cert_path)
-ssl_context.set_alpn_protocols(["h2"])
-
-# local tests
-ssl_context.load_verify_locations(cafile="tests/stress/nginx/cert.pem")
-
 # Apple limits APN payload (data) to 4KB or 5KB, depending.
 # Request header is not subject to flow control in HTTP/2
 # Data is subject to framing and padding, but those are minor.
