@@ -1,5 +1,4 @@
 import asyncio
-import contextlib
 import itertools
 import json
 import logging
@@ -8,6 +7,7 @@ import random
 import ssl
 import socket
 import time
+from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 from unittest.mock import patch
@@ -64,7 +64,7 @@ class Connection:
     last_new_sid = last_sent_sid = -1  # client streams are odd
 
     def __repr__(self):
-        return f"<Connection to:{self.host}:{self.port} state:{self.state} buffered:{self.buffered} inflight:{self.inflight}>"
+        return f"<Connection {self.state} {self.host}:{self.port} buffered:{self.buffered} inflight:{self.inflight}>"
 
     def __init__(self, base_url: str, ssl=None):
         self.channels = dict()
@@ -153,12 +153,12 @@ class Connection:
             # FIXME distinguish between cancellation and context exception
             if self.bgw:
                 self.bgw.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
+                with suppress(asyncio.CancelledError):
                     await self.bgw
 
             if self.bgr:
                 self.bgr.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
+                with suppress(asyncio.CancelledError):
                     await self.bgr
 
             # at this point, we must release or cancel all pending requests
@@ -167,7 +167,7 @@ class Connection:
                     ch.fut.set_exception(Closed())
 
             self.w.close()
-            with contextlib.suppress(ssl.SSLError):
+            with suppress(ssl.SSLError):
                 await self.w.wait_closed()
         finally:
             self.closed = True

@@ -1,5 +1,4 @@
 import asyncio
-import contextlib
 import itertools
 import json
 import logging
@@ -8,6 +7,7 @@ import random
 import ssl
 import socket
 import time
+from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 from unittest.mock import patch
@@ -100,7 +100,8 @@ class Pool:
         try:
             if self.bg:
                 self.bg.cancel()
-                await self.bg
+                with suppress(asyncio.CancelledError):
+                    await self.bg
 
             await asyncio.gather(
                 *(c.__aexit__(exc_type, exc, tb) for c in self.conn),
