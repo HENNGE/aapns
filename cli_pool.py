@@ -4,7 +4,8 @@ import logging
 
 import pytest
 
-from aapns.pool import Pool, Closed
+from aapns.pool import Pool, Blocked, Closed, Timeout, create_ssl_context
+from aapns.pool import Request
 
 stats = collections.defaultdict(int)
 
@@ -36,9 +37,12 @@ async def test_many(count=1000):
 
     mon = asyncio.create_task(monitor())
 
+    ssl_context = create_ssl_context()
+    ssl_context.load_verify_locations(cafile="tests/stress/nginx/cert.pem")
+    ssl_context.load_cert_chain(certfile=".fake-cert", keyfile=".fake-cert")
+
     try:
-        async with Pool("https://localhost:2197") as c:
-            # FIXME how come it's worse with the initial wait?
+        async with Pool("https://localhost:2197", ssl=ssl_context) as c:
             await asyncio.sleep(0.1)
             await asyncio.gather(*[one_request(c, i) for i in range(-2, count, 2)])
     except Closed:

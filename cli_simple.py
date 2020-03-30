@@ -2,7 +2,7 @@ import asyncio
 import logging
 import ssl
 
-from aapns.simple import Request, Connection
+from aapns.simple import Request, Connection, create_ssl_context
 
 
 async def send_several(ssl_context, base_url, requests):
@@ -30,10 +30,7 @@ if __name__ == "__main__":
 
     logging.basicConfig(level=logging.INFO)
 
-    ssl_context = ssl.create_default_context()
-    ssl_context.options |= ssl.OP_NO_TLSv1
-    ssl_context.options |= ssl.OP_NO_TLSv1_1
-    ssl_context.set_alpn_protocols(["h2"])
+    ssl_context = create_ssl_context()
 
     argv = sys.argv[1:]
     if "--prod" in argv:

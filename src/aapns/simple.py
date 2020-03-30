@@ -406,8 +406,8 @@ class Response:
 
 
 def create_ssl_context():
-    ssl = ssl.create_default_context()
-    ssl.options |= ssl.OP_NO_TLSv1
-    ssl.options |= ssl.OP_NO_TLSv1_1
-    ssl.set_alpn_protocols(["h2"])
-    return ssl
+    context = ssl.create_default_context()
+    context.options |= ssl.OP_NO_TLSv1
+    context.options |= ssl.OP_NO_TLSv1_1
+    context.set_alpn_protocols(["h2"])
+    return context
