@@ -1,12 +1,8 @@
-import asyncio
-import itertools
-import json
-import logging
-import math
-import random
-import ssl
-import socket
-import time
+from random import shuffle
+from asyncio import CancelledError, gather, sleep, Event, TimeoutError, wait_for, create_task
+from itertools import count
+from time import time
+from logging import getLogger
 from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
@@ -40,12 +36,13 @@ class Pool:
             dying:
             {dying}>"""
 
-    def __init__(self, base_url: str, ssl=None):
+    def __init__(self, base_url: str, ssl=None, logger=None):
         self.base_url = base_url
         self.conn = set()
         self.dying = set()
         self.ssl = ssl if ssl else create_ssl_context()
-        self._size_event = asyncio.Event()
+        self._size_event = Event()
+        self.logger = logger or getLogger("aapns")
 
     def resize(self, size):
         assert size > 0
@@ -80,19 +77,20 @@ class Pool:
                     await c.__aenter__()
                     self.conn.add(c)
                 except Exception:
-                    logging.exception("New connection failed")
+                    self.logger.exception("New connection failed")
                     break
 
             # FIXME wait for a trigger:
             # * resize
             # * some connection state has changed
-            await asyncio.wait([self._size_event.wait()], timeout=1)
+            with suppress(TimeoutError):
+                await wait_for(self._size_event.wait(), timeout=1)
             self._size_event.clear()
 
     async def __aenter__(self):
-        self.bg = asyncio.create_task(self.background_resize(), name="bg-resize")
+        self.bg = create_task(self.background_resize(), name="bg-resize")
         self.conn = [Connection(self.base_url, ssl=self.ssl) for i in range(self.size)]
-        await asyncio.gather(*(c.__aenter__() for c in self.conn))
+        await gather(*(c.__aenter__() for c in self.conn))
         return self
 
     async def __aexit__(self, exc_type, exc, tb):
@@ -100,10 +98,10 @@ class Pool:
         try:
             if self.bg:
                 self.bg.cancel()
-                with suppress(asyncio.CancelledError):
+                with suppress(CancelledError):
                     await self.bg
 
-            await asyncio.gather(
+            await gather(
                 *(c.__aexit__(exc_type, exc, tb) for c in self.conn),
                 *(c.__aexit__(exc_type, exc, tb) for c in self.dying),
             )
@@ -120,7 +118,7 @@ class Pool:
         # FIXME handle connection getting closed
         # FIXME handle connection replacement
         conns = list(self.conn)
-        random.shuffle(conns)
+        shuffle(conns)
         for c in conns:
             if self.closing:
                 raise Closed()
@@ -134,7 +132,7 @@ class Pool:
             raise Blocked()
 
     async def post(self, req: "Request") -> "Response":
-        for delay in (10 ** i for i in itertools.count(-3, 0.5)):
+        for delay in (10 ** i for i in count(-3, 0.5)):
             if self.closing:
                 raise Closed()
 
@@ -146,7 +144,7 @@ class Pool:
             if self.closing:
                 raise Closed()
 
-            if time.monotonic() + delay > req.deadline:
+            if time() + delay > req.deadline:
                 raise Timeout()
 
-            await asyncio.sleep(delay)
+            await sleep(delay)

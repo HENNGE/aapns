@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import ssl
 
 from aapns.simple import Request, Connection, create_ssl_context
 

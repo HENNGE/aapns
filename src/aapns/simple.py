@@ -1,19 +1,17 @@
 import json
-import logging
 import ssl
-import socket
-import time
 from asyncio import TimeoutError, Future, Event, open_connection, create_task, CancelledError, wait_for
 from contextlib import suppress
 from dataclasses import dataclass, field
+from logging import getLogger
 from math import inf
+from time import time
 from typing import Any, Dict, List, Optional, Tuple
-from unittest.mock import patch
 
 import h2.config
 import h2.connection
 import h2.settings
-import yarl
+from yarl import URL
 
 # Apple limits APN payload (data) to 4KB or 5KB, depending.
 # Request header is not subject to flow control in HTTP/2
@@ -50,12 +48,13 @@ class Connection:
     def __repr__(self):
         return f"<Connection {self.state} {self.host}:{self.port} buffered:{self.buffered} inflight:{self.inflight}>"
 
-    def __init__(self, base_url: str, ssl=None):
+    def __init__(self, base_url: str, ssl=None, logger=None):
         self.channels = dict()
-        url = yarl.URL(base_url)
+        url = URL(base_url)
         self.host = url.host
         self.port = url.port
         self.ssl = ssl if ssl else create_ssl_context()
+        self.logger = logger or getLogger("aapns")
 
     async def __aenter__(self):
         assert ssl.OP_NO_TLSv1 in self.ssl.options
@@ -168,10 +167,10 @@ class Connection:
                     break
 
                 for event in self.conn.receive_data(data):
-                    logging.info("APN: %s", event)
+                    self.logger.info("APN: %s", event)
 
                     if isinstance(event, h2.events.RemoteSettingsChanged):
-                        logging.debug("rcv %s", event)
+                        self.logger.debug("rcv %s", event)
                         m = event.changed_settings.get(
                             h2.settings.SettingCodes.MAX_CONCURRENT_STREAMS
                         )
@@ -181,7 +180,7 @@ class Connection:
                         isinstance(event, h2.events.WindowUpdated)
                         and not event.stream_id
                     ):
-                        logging.debug("rcv %s", event)
+                        self.logger.debug("rcv %s", event)
 
                     sid = getattr(event, "stream_id", 0)
                     error = getattr(event, "error_code", None)
@@ -192,11 +191,11 @@ class Connection:
                             ch.fut.set_result(None)
                     else:
                         # Common case: post caller timed out and quit
-                        logging.debug("request fell off %s %s", sid, event)
+                        self.logger.debug("request fell off %s %s", sid, event)
 
                     if not sid and error is not None:
                         # FIXME break the connection,but give users a chance to complete
-                        logging.warning("Bad error %s", event)
+                        self.logger.warning("Bad error %s", event)
                         self.closing = True
                     elif not sid:
                         if not isinstance(
@@ -207,7 +206,7 @@ class Connection:
                                 h2.events.WindowUpdated,
                             ),
                         ):
-                            logging.debug("ignored global event %s", event)
+                            self.logger.debug("ignored global event %s", event)
 
                 self.please_write.set()
                 # FIXME notify users about possible change to `.blocked`
@@ -218,7 +217,7 @@ class Connection:
                 # * a stream getting closed (but not half-closed)
                 # * closing / closed change
         except Exception:
-            logging.exception("background read task died")
+            self.logger.exception("background read task died")
         finally:
             self.closing = self.closed = True
             for sid, ch in self.channels.items():
@@ -228,7 +227,7 @@ class Connection:
     async def post(self, req: "Request") -> "Response":
         assert len(req.body) <= MAX_NOTIFICATION_PAYLOAD_SIZE
 
-        now = time.monotonic()
+        now = time()
         if now > req.deadline:
             raise Timeout()
         if self.closing or self.closed:
@@ -258,7 +257,7 @@ class Connection:
                 ch.fut = Future()
                 with suppress(TimeoutError):
                     await wait_for(ch.fut, req.deadline - now)
-                now = time.monotonic()
+                now = time()
                 if now > req.deadline:
                     raise Timeout()
                 for event in ch.ev:
@@ -292,7 +291,7 @@ class Connection:
                         self.please_write.clear()
 
         except Exception:
-            logging.exception("background write task died")
+            self.logger.exception("background write task died")
         finally:
             self.closed = True
 
@@ -313,7 +312,7 @@ class FormatError(Exception):
     """Response was weird."""
 
 
-def authority(url: yarl.URL):
+def authority(url: URL):
     if (
         url.port is None
         or url.scheme == "http"
@@ -344,11 +343,11 @@ class Request:
         if timeout is not None and deadline is not None:
             raise ValueError("Specify timeout or deadline, but not both")
         elif timeout is not None:
-            deadline = time.monotonic() + timeout
+            deadline = time() + timeout
         elif deadline is None:
             deadline = inf
 
-        u = yarl.URL(url)
+        u = URL(url)
         pseudo = dict(
             method="POST", scheme=u.scheme, authority=authority(u), path=u.path_qs
         )
