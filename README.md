@@ -16,17 +16,17 @@ Asynchronous Apple Push Notification Service client.
 Rationale for using raw https://github.com/python-hyper/hyper-h2 rather than an existing library, like https://github.com/encode/httpx.
 Let's contrast the push notification use-case vs. generic, browser-like use-case.
 
-| feature                 | push-like | browser-like                           |
-|:------------------------|:----------|:---------------------------------------|
-| request size            | small     | small or large                         |
-| request method          | POST      | `OPTIONS,HEAD,GET,PUT,POST`,custom     |
-| response size           | small     | large                                  |
-| server push             | no        | possible                               |
-| concurrent requests     | `1000`    | dozens                                 |
-| requests per connection | millions  | dozens                                 |
-| can be retried          | any       | idenpotent requests, graceful shutdown |
-| servers                 | `1`       | many                                   |
-| authorisation           | client cert or token | none, token, other          |
+| feature                   | push-like | browser-like                           |
+|:--------------------------|:----------|:---------------------------------------|
+| request size              | tiny      | small or large                         |
+| request method            | `POST`    | `OPTIONS,HEAD,GET,PUT,POST`,custom     |
+| response size             | tiny      | small, large, giant, streamed          |
+| server push               | no        | possible                               |
+| concurrent per connection | `1000`    | dozens                                 |
+| total per connection      | millions  | dozens                                 |
+| retryable                 | all       | idenpotent requests, graceful shutdown |
+| servers                   | `1`       | many                                   |
+| authorisation             | client cert or token | none, token, other          |
 
 ### Plan
 
