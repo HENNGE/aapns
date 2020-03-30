@@ -90,7 +90,7 @@ class Pool:
             self._size_event.clear()
 
     async def __aenter__(self):
-        self.bg = asyncio.create_task(self.background_resize())
+        self.bg = asyncio.create_task(self.background_resize(), name="bg-resize")
         self.conn = [Connection(self.base_url, ssl=self.ssl) for i in range(self.size)]
         await asyncio.gather(*(c.__aenter__() for c in self.conn))
         return self

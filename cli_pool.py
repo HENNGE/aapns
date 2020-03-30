@@ -1,4 +1,3 @@
-import asyncio
 import logging
 from asyncio import CancelledError, run, sleep, gather, create_task
 from collections import defaultdict

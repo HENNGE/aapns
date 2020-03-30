@@ -7,6 +7,7 @@ import random
 import ssl
 import socket
 import time
+from asyncio import TimeoutError
 from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
@@ -58,7 +59,7 @@ class Connection:
     # * closed: totally dead
     # * fixme: __aexit__() finished
     closed = closing = False
-    r = w = bgr = bgw = please_write = None
+    r = w = bgr = bgw = None
     channels: Dict[int, Channel]
     max_concurrent_streams = 100  # recommended in RFC7540#section-6.5.2
     last_new_sid = last_sent_sid = -1  # client streams are odd
@@ -76,7 +77,7 @@ class Connection:
     async def __aenter__(self):
         assert ssl.OP_NO_TLSv1 in self.ssl.options
         assert ssl.OP_NO_TLSv1_1 in self.ssl.options
-        # FIXME assert 'h2' in self.ssl.xx_alpn_protocols
+        # https://bugs.python.org/issue40111 validate h2 alpn
 
         self.please_write = asyncio.Event()
         self.r, self.w = await asyncio.open_connection(
@@ -96,7 +97,12 @@ class Connection:
             client=True,
             initial_values={
                 h2.settings.SettingCodes.ENABLE_PUSH: 0,
-                # FIXME test against real server
+                # FIXME Apple server settings:
+                # HEADER_TABLE_SIZE 4096
+                # MAX_CONCURRENT_STREAMS 1000
+                # INITIAL_WINDOW_SIZE 65535
+                # MAX_FRAME_SIZE 16384
+                # MAX_HEADER_LIST_SIZE 8000
                 h2.settings.SettingCodes.MAX_CONCURRENT_STREAMS: 2 ** 20,
                 h2.settings.SettingCodes.MAX_HEADER_LIST_SIZE: 2 ** 16 - 1,
             },
@@ -107,8 +113,8 @@ class Connection:
         self.conn.increment_flow_control_window(2 ** 24)
         self.please_write.set()
 
-        self.bgr = asyncio.create_task(self.background_read())
-        self.bgw = asyncio.create_task(self.background_write())
+        self.bgr = asyncio.create_task(self.background_read(), name="bg-read")
+        self.bgw = asyncio.create_task(self.background_write(), name="bg-write")
 
         # FIXME we could wait for settings frame from the server,
         # to tell us how much we can actually send, as initial window is small
@@ -268,10 +274,8 @@ class Connection:
         try:
             while not self.closing:
                 ch.fut = asyncio.Future()
-                try:
+                with suppress(TimeoutError):
                     await asyncio.wait_for(ch.fut, req.deadline - now)
-                except asyncio.TimeoutError:
-                    pass
                 now = time.monotonic()
                 if now > req.deadline:
                     raise Timeout()
@@ -403,6 +407,10 @@ class Response:
             return cls(code, h, json.loads(body) if body else None)
         except json.JSONDecodeError:
             raise FormatError(f"Not JSON: {body[:20]!r}")
+
+    @property
+    def apns_id(self):
+        return self.header.get("apns-id", None)
 
 
 def create_ssl_context():
