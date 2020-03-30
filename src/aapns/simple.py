@@ -1,15 +1,12 @@
-import asyncio
-import itertools
 import json
 import logging
-import math
-import random
 import ssl
 import socket
 import time
-from asyncio import TimeoutError
+from asyncio import TimeoutError, Future, Event, open_connection, create_task, CancelledError, wait_for
 from contextlib import suppress
 from dataclasses import dataclass, field
+from math import inf
 from typing import Any, Dict, List, Optional, Tuple
 from unittest.mock import patch
 
@@ -28,25 +25,11 @@ REQUIRED_FREE_SPACE = 6000
 # Presumably it's on for macOS by default
 # https://github.com/dabeaz/curio/issues/83
 
-def poke_send_queue(w, state=""):
-    # macOS
-    SO_NWRITE = 0x1024
-    logging.info("send queue %s: %s", state, w._transport._ssl_protocol._transport._sock.getsockopt(socket.SOL_SOCKET, 0x1024))
-    # Linux
-    # FIXME SIOCOUTQ
-    # Windows
-    # FIXME GetPerTcpConnectionEStats with the TcpConnectionEstatsSendBuff option
-
-
-def set_socket_low_water_mark(w):
-    # TCP_NOTSENT_LOWAT = macOS 0x201, Linux 25
-    w._transport._ssl_protocol._transport._sock.setsockopt(socket.IPPROTO_TCP, 0x201, 100)
-
 
 @dataclass
 class Channel:
     sid: int
-    fut: Optional[asyncio.Future]
+    fut: Optional[Future]
     ev: List[h2.events.Event] = field(default_factory=list)
     header: Optional[dict] = None
     body: bytes = b""
@@ -79,11 +62,10 @@ class Connection:
         assert ssl.OP_NO_TLSv1_1 in self.ssl.options
         # https://bugs.python.org/issue40111 validate h2 alpn
 
-        self.please_write = asyncio.Event()
-        self.r, self.w = await asyncio.open_connection(
+        self.please_write = Event()
+        self.r, self.w = await open_connection(
             self.host, self.port, ssl=self.ssl, ssl_handshake_timeout=5
         )
-        set_socket_low_water_mark(self.w)
         info = self.w.get_extra_info("ssl_object")
         assert info, "HTTP/2 server is required"
         proto = info.selected_alpn_protocol()
@@ -113,8 +95,8 @@ class Connection:
         self.conn.increment_flow_control_window(2 ** 24)
         self.please_write.set()
 
-        self.bgr = asyncio.create_task(self.background_read(), name="bg-read")
-        self.bgw = asyncio.create_task(self.background_write(), name="bg-write")
+        self.bgr = create_task(self.background_read(), name="bg-read")
+        self.bgw = create_task(self.background_write(), name="bg-write")
 
         # FIXME we could wait for settings frame from the server,
         # to tell us how much we can actually send, as initial window is small
@@ -159,12 +141,12 @@ class Connection:
             # FIXME distinguish between cancellation and context exception
             if self.bgw:
                 self.bgw.cancel()
-                with suppress(asyncio.CancelledError):
+                with suppress(CancelledError):
                     await self.bgw
 
             if self.bgr:
                 self.bgr.cancel()
-                with suppress(asyncio.CancelledError):
+                with suppress(CancelledError):
                     await self.bgr
 
             # at this point, we must release or cancel all pending requests
@@ -273,9 +255,9 @@ class Connection:
 
         try:
             while not self.closing:
-                ch.fut = asyncio.Future()
+                ch.fut = Future()
                 with suppress(TimeoutError):
-                    await asyncio.wait_for(ch.fut, req.deadline - now)
+                    await wait_for(ch.fut, req.deadline - now)
                 now = time.monotonic()
                 if now > req.deadline:
                     raise Timeout()
@@ -301,15 +283,9 @@ class Connection:
                         return
 
                     if data := self.conn.data_to_send():
-                        poke_send_queue(self.w, 1)
                         self.w.write(data)
-                        poke_send_queue(self.w, 2)
-                        st = time.monotonic()
                         last_sid = self.last_new_sid
                         await self.w.drain()
-                        # FIXME test his on slow network
-                        logging.info("send drain took %s", time.monotonic() - st)
-                        poke_send_queue(self.w, 3)
                         self.last_sent_sid = last_sid
                     else:
                         await self.please_write.wait()
@@ -370,7 +346,7 @@ class Request:
         elif timeout is not None:
             deadline = time.monotonic() + timeout
         elif deadline is None:
-            deadline = math.inf
+            deadline = inf
 
         u = yarl.URL(url)
         pseudo = dict(

@@ -28,6 +28,12 @@ Let's contrast the push notification use-case vs. generic, browser-like use-case
 | servers                   | `1`       | many                                   |
 | authorisation             | client cert or token | none, token, other          |
 
+### Other
+
+* Apple server sets max concurrent requests to `1000` and push requests are small, and max request size is 5KB, thus TCP send buffer will always be quite small, thus:
+  * removed setting `TCP_NOTSENT_LOWAT`
+  * removed `SO_NWRITE` check
+
 ### Plan
 
 #### Low level
