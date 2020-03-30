@@ -9,6 +9,7 @@ from httpx.config import DEFAULT_TIMEOUT_CONFIG, TimeoutTypes
 from structlog import BoundLogger
 
 from . import config, errors, models
+from .pool import Pool
 
 Headers = List[Tuple[str, str]]
 
@@ -65,6 +66,7 @@ class APNS:
     client: AsyncClient
     logger: BoundLogger
     server: config.Server
+    pool: Pool
 
     async def send_notification(
         self,
@@ -96,6 +98,7 @@ class APNS:
 
     async def close(self):
         await self.client.aclose()
+        await self.pool.__aexit__(None, None, None)
 
 
 async def create_client(
@@ -111,7 +114,10 @@ async def create_client(
         timeout=timeout,
         verify=False,  # FIXME local testing only
     )
-    return APNS(client, logger, server)
+    base_url = "FIXME"
+    apns = APNS(client, logger, server, Pool(base_url))
+    await apns.pool.__aenter__()
+    return apns
 
 
 from dataclasses import dataclass
