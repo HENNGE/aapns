@@ -1,6 +1,14 @@
 import json
 import ssl
-from asyncio import TimeoutError, Future, Event, open_connection, create_task, CancelledError, wait_for
+from asyncio import (
+    CancelledError,
+    Event,
+    Future,
+    TimeoutError,
+    create_task,
+    open_connection,
+    wait_for,
+)
 from contextlib import suppress
 from dataclasses import dataclass, field
 from logging import getLogger
@@ -18,10 +26,6 @@ from yarl import URL
 # Data is subject to framing and padding, but those are minor.
 MAX_NOTIFICATION_PAYLOAD_SIZE = 5120
 REQUIRED_FREE_SPACE = 6000
-
-# FIXME set `TCP_NOTSENT_LOWAT` on Linux
-# Presumably it's on for macOS by default
-# https://github.com/dabeaz/curio/issues/83
 
 
 @dataclass
@@ -103,11 +107,16 @@ class Connection:
 
     @property
     def state(self):
-        if not self.please_write: return "new"
-        elif not self.bgw: return "starting"
-        elif not self.closing: return "active"
-        elif not self.closed: return "closing"
-        else: return "closed"
+        if not self.please_write:
+            return "new"
+        elif not self.bgw:
+            return "starting"
+        elif not self.closing:
+            return "active"
+        elif not self.closed:
+            return "closing"
+        else:
+            return "closed"
 
     @property
     def buffered(self):
@@ -167,20 +176,14 @@ class Connection:
                     break
 
                 for event in self.conn.receive_data(data):
-                    self.logger.info("APN: %s", event)
+                    self.logger.debug("APN: %s", event)
 
                     if isinstance(event, h2.events.RemoteSettingsChanged):
-                        self.logger.debug("rcv %s", event)
                         m = event.changed_settings.get(
                             h2.settings.SettingCodes.MAX_CONCURRENT_STREAMS
                         )
                         if m:
                             self.max_concurrent_streams = m.new_value
-                    elif (
-                        isinstance(event, h2.events.WindowUpdated)
-                        and not event.stream_id
-                    ):
-                        self.logger.debug("rcv %s", event)
 
                     sid = getattr(event, "stream_id", 0)
                     error = getattr(event, "error_code", None)
@@ -189,24 +192,11 @@ class Connection:
                         ch.ev.append(event)
                         if not ch.fut.done():
                             ch.fut.set_result(None)
-                    else:
-                        # Common case: post caller timed out and quit
-                        self.logger.debug("request fell off %s %s", sid, event)
 
                     if not sid and error is not None:
                         # FIXME break the connection,but give users a chance to complete
                         self.logger.warning("Bad error %s", event)
                         self.closing = True
-                    elif not sid:
-                        if not isinstance(
-                            event,
-                            (
-                                h2.events.RemoteSettingsChanged,
-                                h2.events.SettingsAcknowledged,
-                                h2.events.WindowUpdated,
-                            ),
-                        ):
-                            self.logger.debug("ignored global event %s", event)
 
                 self.please_write.set()
                 # FIXME notify users about possible change to `.blocked`
@@ -248,6 +238,8 @@ class Connection:
 
         ch = self.channels[sid] = Channel(sid, None, [])
         self.conn.send_headers(sid, req.header, end_stream=False)
+        # FIXME don't we have to increment global flow control
+        # also on reception of stream X data?
         self.conn.increment_flow_control_window(2 ** 16, stream_id=sid)
         self.conn.send_data(sid, req.body, end_stream=True)
         self.please_write.set()

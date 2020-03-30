@@ -1,10 +1,18 @@
-from random import shuffle
-from asyncio import CancelledError, gather, sleep, Event, TimeoutError, wait_for, create_task
-from itertools import count
-from time import time
-from logging import getLogger
+from asyncio import (
+    CancelledError,
+    Event,
+    TimeoutError,
+    create_task,
+    gather,
+    sleep,
+    wait_for,
+)
 from contextlib import suppress
 from dataclasses import dataclass, field
+from itertools import count
+from logging import getLogger
+from random import shuffle
+from time import time
 from typing import Any, Dict, List, Optional, Tuple
 from unittest.mock import patch
 
@@ -13,9 +21,16 @@ import h2.connection
 import h2.settings
 import yarl
 
-from .simple import Request, Response
-from .simple import Connection, create_ssl_context
-from .simple import Blocked, Closed, Timeout, FormatError
+from .connection import (
+    Blocked,
+    Closed,
+    Connection,
+    FormatError,
+    Request,
+    Response,
+    Timeout,
+    create_ssl_context,
+)
 
 
 class Pool:

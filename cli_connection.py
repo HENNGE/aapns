@@ -1,7 +1,12 @@
 import asyncio
 import logging
+import sys
 
-from aapns.simple import Request, Connection, create_ssl_context
+from aapns.connection import Connection, Request, create_ssl_context
+
+USAGE = (
+    "Usage: python cli_connection.py [opts] device_token cmd message-1 message-2 ..."
+)
 
 
 async def send_several(ssl_context, base_url, requests):
@@ -25,10 +30,7 @@ async def send_several(ssl_context, base_url, requests):
 
 
 if __name__ == "__main__":
-    import sys
-
     logging.basicConfig(level=logging.INFO)
-
     ssl_context = create_ssl_context()
 
     argv = sys.argv[1:]
@@ -74,9 +76,7 @@ if __name__ == "__main__":
     del argv[0]
 
     if not argv:
-        raise Exception(
-            "Usage: python simple.py [opts] device_token cmd message-1 message-2 ..."
-        )
+        raise Exception(USAGE)
 
     base_url = f"https://{host}:{port}"
     requests = [

@@ -1,12 +1,12 @@
 import logging
-from asyncio import CancelledError, run, sleep, gather, create_task
+import sys
+from asyncio import CancelledError, create_task, gather, run, sleep
 from collections import defaultdict
 from contextlib import suppress
 
 import pytest
 
-from aapns.pool import Pool, Blocked, Closed, Timeout, create_ssl_context
-from aapns.pool import Request
+from aapns.pool import Blocked, Closed, Pool, Request, Timeout, create_ssl_context
 
 stats = defaultdict(int)
 
@@ -31,10 +31,11 @@ async def one_request(c, i):
 
 async def test_many(count=1000):
     c = None
+
     async def monitor():
         while True:
             logging.info("Pool %s", c)
-            await sleep(.1)
+            await sleep(0.1)
 
     mon = create_task(monitor())
 
@@ -56,7 +57,6 @@ async def test_many(count=1000):
 
 
 if __name__ == "__main__":
-    import sys
     logging.basicConfig(level=logging.INFO)
     count = int(sys.argv[1]) if len(sys.argv) > 1 else 2000
     run(test_many(count))
