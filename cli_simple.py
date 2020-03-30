@@ -5,8 +5,8 @@ import ssl
 from aapns.simple import Request, Connection
 
 
-async def send_several(base_url, requests):
-    async with Connection(base_url) as c:
+async def send_several(ssl_context, base_url, requests):
+    async with Connection(base_url, ssl=ssl_context) as c:
         tasks = []
         for r in requests:
             logging.info("Sleeping a bit")
@@ -93,4 +93,4 @@ if __name__ == "__main__":
         for text in argv
     ]
 
-    asyncio.run(send_several(base_url, requests))
+    asyncio.run(send_several(ssl_context, base_url, requests))

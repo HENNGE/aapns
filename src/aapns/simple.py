@@ -64,18 +64,23 @@ class Connection:
     last_new_sid = last_sent_sid = -1  # client streams are odd
 
     def __repr__(self):
-        return f"<Connection to:{self.host}:{self.port} state:{self.state} buffered:{self.buffered_requests} inflight:{self.inflight_requests}>"
+        return f"<Connection to:{self.host}:{self.port} state:{self.state} buffered:{self.buffered} inflight:{self.inflight}>"
 
-    def __init__(self, base_url: str):
+    def __init__(self, base_url: str, ssl=None):
         self.channels = dict()
         url = yarl.URL(base_url)
         self.host = url.host
         self.port = url.port
+        self.ssl = ssl if ssl else create_ssl_context()
 
     async def __aenter__(self):
+        assert ssl.OP_NO_TLSv1 in self.ssl.options
+        assert ssl.OP_NO_TLSv1_1 in self.ssl.options
+        # FIXME assert 'h2' in self.ssl.xx_alpn_protocols
+
         self.please_write = asyncio.Event()
         self.r, self.w = await asyncio.open_connection(
-            self.host, self.port, ssl=ssl_context, ssl_handshake_timeout=5
+            self.host, self.port, ssl=self.ssl, ssl_handshake_timeout=5
         )
         set_socket_low_water_mark(self.w)
         info = self.w.get_extra_info("ssl_object")
@@ -114,18 +119,22 @@ class Connection:
         if not self.please_write: return "new"
         elif not self.bgw: return "starting"
         elif not self.closing: return "active"
-        elif not self.closed: return "graceful-shutdown"
+        elif not self.closed: return "closing"
         else: return "closed"
 
     @property
-    def buffered_requests(self):
+    def buffered(self):
         """ This metric shows how "slow" we are sending requests out. """
         return (self.last_new_sid - self.last_sent_sid) // 2
 
     @property
-    def inflight_requests(self):
+    def pending(self):
         """ This metric shows how "slow" the server is to respond. """
         return len(self.channels)
+
+    @property
+    def inflight(self):
+        return self.pending - self.buffered
 
     @property
     def blocked(self):
@@ -394,3 +403,11 @@ class Response:
             return cls(code, h, json.loads(body) if body else None)
         except json.JSONDecodeError:
             raise FormatError(f"Not JSON: {body[:20]!r}")
+
+
+def create_ssl_context():
+    ssl = ssl.create_default_context()
+    ssl.options |= ssl.OP_NO_TLSv1
+    ssl.options |= ssl.OP_NO_TLSv1_1
+    ssl.set_alpn_protocols(["h2"])
+    return ssl

@@ -18,7 +18,7 @@ import h2.settings
 import yarl
 
 from .simple import Request, Response
-from .simple import Connection
+from .simple import Connection, create_ssl_context
 from .simple import Blocked, Closed, Timeout, FormatError
 
 
@@ -40,10 +40,11 @@ class Pool:
             dying:
             {dying}>"""
 
-    def __init__(self, base_url: str):
+    def __init__(self, base_url: str, ssl=None):
         self.base_url = base_url
         self.conn = set()
         self.dying = set()
+        self.ssl = ssl if ssl else create_ssl_context()
 
     async def background_resize(self):
         while True:
@@ -68,7 +69,7 @@ class Pool:
                     await c.__aexit__(None, None, None)
 
             while len(self.conn) < self.size:
-                c = Connection(self.base_url)
+                c = Connection(self.base_url, ssl=self.ssl)
                 try:
                     await c.__aenter__()
                     self.conn.add(c)
