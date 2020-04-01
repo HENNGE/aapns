@@ -38,7 +38,6 @@ class Pool:
 
     closing = closed = False
     base_url = None
-    size = 10
 
     def __str__(self):
         alive = "\n".join(map(str, self.conn))
@@ -49,11 +48,13 @@ class Pool:
             dying:
             {dying}>"""
 
-    def __init__(self, base_url: str, ssl=None, logger=None):
+    def __init__(self, base_url: str, size=10, ssl=None, logger=None):
         self.base_url = base_url
         self.conn: Set[Connection] = set()
         self.dying: Set[Connection] = set()
         self.ssl = ssl if ssl else create_ssl_context()
+        assert size > 0
+        self.size = size
         self._size_event = Event()
         self.logger = logger or getLogger("aapns")
 
