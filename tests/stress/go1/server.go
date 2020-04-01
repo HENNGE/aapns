@@ -4,7 +4,7 @@ import (
 	"log"
 	"net/http"
 	"net/http/httputil"
-        "os"
+	"os"
 	"time"
 )
 
@@ -20,7 +20,7 @@ func handle(w http.ResponseWriter, r *http.Request) {
 		log.Fatal(err)
 		return
 	}
-        os.Stdout.Write(append(dump, "\n\n"...))
+	os.Stdout.Write(append(dump, "\n\n"...))
 	time.Sleep(time.Second)
 	w.Write([]byte("{}"))
 }

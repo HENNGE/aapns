@@ -38,7 +38,7 @@ async def send_hello_world():
 
 Or how to ensure that a notification is displayed only once in the presence of network errors?
 
-If the underlying TCP connection is broken or times out, there may be some notifications still in flight. In that case it's impossible to tell whether the notification was not yet delivered to the Apple server, or it was delivered by Apple server response was not yet delivered to back to your client.
+If the underlying TCP connection is broken or times out, there may be some notifications still in flight. In that case it's impossible to tell whether the notification was not yet delivered to the Apple server, or it was delivered but Apple server response was not yet delivered to back to your client.
 
 Additionally, the server may try to shut down an HTTP/2 connection gracefully, for example for server maintenance or upgrade. In that case, due to https://github.com/python-hyper/hyper-h2/issues/1181, it is not possible to tell which of the in-flight requests will be completed by the server.
 
@@ -59,7 +59,7 @@ However, if you are rely on notification collapse mechanism, if `aapns` retransm
 
 Use this API to maintain a fixed size connection pool and gain automatic retries with exponential back-off. A connection pool can handle up to `1000 * size` (current Apple server limit) concurrent requests and practically unlimited dumb queue of requests should concurrency limit be exceeded. It is thus suitable for bursty traffic.
 
-Use this API for generic RPC-like communication over HTTP/2.
+Use this API to send notification en masse or generic RPC-like communication over HTTP/2.
 
 ```py
 from aapns.pool import create_ssl_context, Pool, Request
@@ -70,7 +70,7 @@ ssl_context = create_ssl_context()
 ssl_context.load_cert_chain(certfile=..., keyfile=...)
 
 req = Request.new(
-    "https://api.development.push.apple.com",
+    "https://api.development.push.apple.com/3/device/42...42",
     {"apns-push-type": "alert", "apns-topic": "com.app.your"},
     {"apns": {"alert": {"body": "Wakey-wakey, ham and bakey!"}}},
     timeout=10,  # or the pool may retry forever
@@ -105,7 +105,7 @@ ssl_context = create_ssl_context()
 ssl_context.load_cert_chain(certfile=..., keyfile=...)
 
 req = Request.new(
-    "https://api.development.push.apple.com",
+    "https://api.development.push.apple.com/3/device/42...42",
     {"apns-push-type": "alert", "apns-topic": "com.app.your"},
     {"apns": {"alert": {"body": "Wakey-wakey, ham and bakey!"}}},
     timeout=10)
