@@ -9,7 +9,7 @@ from httpx.config import DEFAULT_TIMEOUT_CONFIG, TimeoutTypes
 from structlog import BoundLogger
 
 from . import config, errors, models
-from .pool import Pool
+from .pool import create_ssl_context, Pool, Request
 
 Headers = List[Tuple[str, str]]
 
@@ -90,11 +90,26 @@ class APNS:
             server=self.server,
         )
 
+        url = f"https://{self.server.host}:{self.server.port}/3/device/{token}"
+        header = {
+            "apns-priority": str(priority.value),
+            "apns-push-type": notification.push_type.value,
+            **({"apns-id": apns_id} if apns_id else {}),
+            **({"apns-expiration": str(expiration)} if expiration else {}),
+            **({"apns-topic": topic} if topic else {}),
+            **({"apns-collapse-id": collapse_id} if collapse_id else {}),
+        }
+
+        r = Request.new(url, header, notification.get_dict(), timeout=10)
+        response_id_1 = (await self.pool.post(r)).apns_id
+
         response = await self.client.post(
             url, data=request_body, headers=request_headers
         )
 
-        return await handle_response(response)
+        response_id_2 = await handle_response(response)
+        assert response_id_1 == response_id_2, "Not really, right?"
+        return response_id_1
 
     async def close(self):
         await self.client.aclose()
@@ -114,7 +129,11 @@ async def create_client(
         timeout=timeout,
         verify=False,  # FIXME local testing only
     )
-    base_url = "FIXME"
-    apns = APNS(client, logger, server, Pool(base_url))
+    base_url = f"https://{server.host}:{server.port}"
+    ssl_context = create_ssl_context()
+    # FIXME
+    ssl_context.load_verify_locations(cafile="tests/stress/nginx/cert.pem")
+    ssl_context.load_cert_chain(certfile=client_cert_path, keyfile=client_cert_path)
+    apns = APNS(client, logger, server, Pool(base_url, ssl=ssl_context, logger=logger))
     await apns.pool.__aenter__()
     return apns

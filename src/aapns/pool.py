@@ -13,7 +13,7 @@ from itertools import count
 from logging import getLogger
 from random import shuffle
 from time import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Set
 from unittest.mock import patch
 
 import h2.config
@@ -39,8 +39,6 @@ class Pool:
     closing = closed = False
     base_url = None
     size = 10
-    conn = None
-    dying = None
 
     def __str__(self):
         alive = "\n".join(map(str, self.conn))
@@ -53,8 +51,8 @@ class Pool:
 
     def __init__(self, base_url: str, ssl=None, logger=None):
         self.base_url = base_url
-        self.conn = set()
-        self.dying = set()
+        self.conn: Set[Connection] = set()
+        self.dying: Set[Connection] = set()
         self.ssl = ssl if ssl else create_ssl_context()
         self._size_event = Event()
         self.logger = logger or getLogger("aapns")
@@ -163,3 +161,5 @@ class Pool:
                 raise Timeout()
 
             await sleep(delay)
+        else:
+            raise Timeout()

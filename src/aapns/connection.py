@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from logging import getLogger
 from math import inf
 from time import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 import h2.config
 import h2.connection
