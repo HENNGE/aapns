@@ -5,7 +5,12 @@ from typing import *
 
 import attr
 from httpx import URL, AsyncClient, Response
-from httpx.config import DEFAULT_TIMEOUT_CONFIG, TimeoutTypes
+try:
+    # httpx 0.11.x
+    from httpx.config import DEFAULT_TIMEOUT_CONFIG, TimeoutTypes
+except ModuleNotFoundError:
+    # httpx 0.12.x
+    from httpx._config import DEFAULT_TIMEOUT_CONFIG, TimeoutTypes
 from structlog import BoundLogger
 
 from . import config, errors, models
@@ -109,7 +114,6 @@ class APNS:
 
         response_id_2 = await handle_response(response)
         self.logger.warn(f"-> {response_id_1}, {response_id_2}")
-        assert response_id_1 == response_id_2, "Not really, right?"
         return response_id_1
 
     async def close(self):
@@ -128,12 +132,11 @@ async def create_client(
         http2=True,
         cert=client_cert_path,
         timeout=timeout,
-        verify=False,  # FIXME local testing only
     )
     base_url = f"https://{server.host}:{server.port}"
     ssl_context = create_ssl_context()
     # FIXME
-    ssl_context.load_verify_locations(cafile="tests/stress/nginx/cert.pem")
+    # ssl_context.load_verify_locations(cafile="tests/stress/nginx/cert.pem")
     ssl_context.load_cert_chain(certfile=client_cert_path, keyfile=client_cert_path)
     apns = APNS(client, logger, server, Pool(base_url, ssl=ssl_context, logger=logger))
     await apns.pool.__aenter__()
