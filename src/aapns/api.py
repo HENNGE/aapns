@@ -9,7 +9,7 @@ from httpx.config import DEFAULT_TIMEOUT_CONFIG, TimeoutTypes
 from structlog import BoundLogger
 
 from . import config, errors, models
-from .pool import create_ssl_context, Pool, Request
+from .pool import Pool, Request, create_ssl_context
 
 Headers = List[Tuple[str, str]]
 
@@ -47,7 +47,7 @@ def encode_request(
 
 
 async def handle_response(response: Response) -> str:
-    response_id = response.headers.get("apns-id", "")
+    response_id = response.headers.get("apns-id", None)
 
     if response.status_code != 200:
         reason = await response.aread()
@@ -108,6 +108,7 @@ class APNS:
         )
 
         response_id_2 = await handle_response(response)
+        self.logger.warn(f"-> {response_id_1}, {response_id_2}")
         assert response_id_1 == response_id_2, "Not really, right?"
         return response_id_1
 

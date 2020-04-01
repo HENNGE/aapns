@@ -4,14 +4,16 @@ from typing import Dict
 
 import attr
 import click
+from structlog import get_logger
+
 from aapns import config, models
 from aapns.api import create_client
-from structlog import get_logger
 
 SERVERS: Dict[bool, Dict[bool, config.Server]] = {
     True: {True: config.ProductionAltPort, False: config.Production},
     False: {True: config.DevelopmentAltPort, False: config.Development},
-    False: {True: config.LocalAltPort, False: config.Local},
+    # Redirect dev to localhost for testing
+    # False: {True: config.LocalAltPort, False: config.Local},
 }
 
 

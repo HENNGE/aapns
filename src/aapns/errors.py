@@ -1,4 +1,4 @@
-from typing import Any, Dict, Type
+from typing import Any, Dict, Optional, Type
 
 
 class APNSError(Exception):
@@ -64,5 +64,5 @@ ServiceUnavailable = create("ServiceUnavailable")
 Shutdown = create("Shutdown")
 
 
-def get(reason: Any, apns_id: str) -> ResponseError:
+def get(reason: Any, apns_id: Optional[str]) -> ResponseError:
     return CODES.get(reason, UnknownResponseError)(reason, apns_id)
