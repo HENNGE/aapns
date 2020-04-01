@@ -1,6 +1,4 @@
 import json
-import socket
-import ssl
 from typing import *
 
 import attr
