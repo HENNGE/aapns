@@ -3,12 +3,13 @@ import sys
 from asyncio import CancelledError, create_task, gather, run, sleep
 from collections import defaultdict
 from contextlib import suppress
+from typing import Any, Dict
 
 import pytest
 
 from aapns.pool import Blocked, Closed, Pool, Request, Timeout, create_ssl_context
 
-stats = defaultdict(int)
+stats: Dict[Any, int] = defaultdict(int)
 
 pytestmark = pytest.mark.asyncio
 

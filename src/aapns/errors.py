@@ -64,5 +64,5 @@ ServiceUnavailable = create("ServiceUnavailable")
 Shutdown = create("Shutdown")
 
 
-def get(reason: Any, apns_id: Optional[str]) -> ResponseError:
+def get(reason: Any, apns_id: str) -> ResponseError:
     return CODES.get(reason, UnknownResponseError)(reason, apns_id)
