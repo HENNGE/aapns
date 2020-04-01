@@ -5,16 +5,18 @@ from typing import *
 
 import attr
 from httpx import URL, AsyncClient, Response
+from structlog import BoundLogger
+
+from . import config, errors, models
+from .pool import Pool, Request, create_ssl_context
+
 try:
     # httpx 0.11.x
     from httpx.config import DEFAULT_TIMEOUT_CONFIG, TimeoutTypes
 except ModuleNotFoundError:
     # httpx 0.12.x
     from httpx._config import DEFAULT_TIMEOUT_CONFIG, TimeoutTypes
-from structlog import BoundLogger
 
-from . import config, errors, models
-from .pool import Pool, Request, create_ssl_context
 
 Headers = List[Tuple[str, str]]
 
@@ -128,14 +130,10 @@ async def create_client(
     logger: Optional[BoundLogger] = None,
     timeout: TimeoutTypes = DEFAULT_TIMEOUT_CONFIG,
 ) -> APNS:
-    client = AsyncClient(
-        http2=True,
-        cert=client_cert_path,
-        timeout=timeout,
-    )
+    client = AsyncClient(http2=True, cert=client_cert_path, timeout=timeout)
     base_url = f"https://{server.host}:{server.port}"
     ssl_context = create_ssl_context()
-    # FIXME
+    # FIXME test only
     # ssl_context.load_verify_locations(cafile="tests/stress/nginx/cert.pem")
     ssl_context.load_cert_chain(certfile=client_cert_path, keyfile=client_cert_path)
     apns = APNS(client, logger, server, Pool(base_url, ssl=ssl_context, logger=logger))
