@@ -8,4 +8,5 @@ __pycache__
 /reports/
 !.github
 !.pre-commit-config.yaml
+!.cafile
 poetry.lock

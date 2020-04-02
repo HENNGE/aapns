@@ -15,6 +15,7 @@ from logging import getLogger
 from math import inf
 from time import time
 from typing import Dict, List, Optional
+from urllib.parse import urlparse
 
 import h2.config
 import h2.connection
@@ -52,11 +53,19 @@ class Connection:
     def __repr__(self):
         return f"<Connection {self.state} {self.host}:{self.port} buffered:{self.buffered} inflight:{self.inflight}>"
 
-    def __init__(self, base_url: str, ssl=None, logger=None):
+    def __init__(self, origin: str, ssl=None, logger=None):
         self.channels = dict()
-        url = URL(base_url)
-        self.host = url.host
-        self.port = url.port
+        url = urlparse(origin)
+        assert url.scheme == "https"
+        assert url.hostname
+        assert not url.username
+        assert not url.password
+        assert not url.path
+        assert not url.params
+        assert not url.query
+        assert not url.fragment
+        self.host = url.hostname
+        self.port = url.port or 443
         self.ssl = ssl if ssl else create_ssl_context()
         self.logger = logger or getLogger("aapns")
 

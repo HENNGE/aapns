@@ -128,12 +128,13 @@ async def create_client(
     *,
     logger: Optional[BoundLogger] = None,
     timeout: TimeoutTypes = DEFAULT_TIMEOUT_CONFIG,
+    cafile: str = None,
 ) -> APNS:
     client = AsyncClient(http2=True, cert=client_cert_path, timeout=timeout)
     base_url = f"https://{server.host}:{server.port}"
     ssl_context = create_ssl_context()
-    # FIXME test only
-    # ssl_context.load_verify_locations(cafile="tests/stress/nginx/cert.pem")
+    if cafile:
+        ssl_context.load_verify_locations(cafile=cafile)
     ssl_context.load_cert_chain(certfile=client_cert_path, keyfile=client_cert_path)
     apns = APNS(client, logger, server, Pool(base_url, ssl=ssl_context, logger=logger))
     await apns.pool.__aenter__()
