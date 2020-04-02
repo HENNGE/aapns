@@ -70,7 +70,7 @@ ssl_context = create_ssl_context()
 ssl_context.load_cert_chain(certfile=..., keyfile=...)
 
 req = Request.new(
-    "https://api.development.push.apple.com/3/device/42...42",
+    "/3/device/42...42",
     {"apns-push-type": "alert", "apns-topic": "com.app.your"},
     {"apns": {"alert": {"body": "Wakey-wakey, ham and bakey!"}}},
     timeout=10,  # or the pool may retry forever
@@ -105,7 +105,7 @@ ssl_context = create_ssl_context()
 ssl_context.load_cert_chain(certfile=..., keyfile=...)
 
 req = Request.new(
-    "https://api.development.push.apple.com/3/device/42...42",
+    "/3/device/42...42",
     {"apns-push-type": "alert", "apns-topic": "com.app.your"},
     {"apns": {"alert": {"body": "Wakey-wakey, ham and bakey!"}}},
     timeout=10)

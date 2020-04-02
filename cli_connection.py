@@ -81,7 +81,7 @@ if __name__ == "__main__":
     base_url = f"https://{host}:{port}"
     requests = [
         Request.new(
-            f"{base_url}/3/device/{device_token}",
+            f"/3/device/{device_token}",
             {"Apns-Priority": "5", "Apns-Push-Type": "alert"},
             {"aps": {"alert": {key: text}}},
             timeout=10,

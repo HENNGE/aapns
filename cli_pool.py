@@ -17,7 +17,7 @@ pytestmark = pytest.mark.asyncio
 async def one_request(c, i):
     try:
         req = Request.new(
-            f"https://localhost:2197/3/device/aaa-{i}",
+            f"/3/device/aaa-{i}",
             dict(foo="bar"),
             dict(baz=42),
             timeout=min(i * 0.1, 10),

@@ -85,17 +85,19 @@ class APNS:
         collapse_id: Optional[str] = None,
     ) -> str:
 
-        u = f"https://{self.server.host}:{self.server.port}/3/device/{token}"
-        header = {
-            "apns-priority": str(priority.value),
-            "apns-push-type": notification.push_type.value,
-            **({"apns-id": apns_id} if apns_id else {}),
-            **({"apns-expiration": str(expiration)} if expiration else {}),
-            **({"apns-topic": topic} if topic else {}),
-            **({"apns-collapse-id": collapse_id} if collapse_id else {}),
-        }
-
-        r = Request.new(u, header, notification.get_dict(), timeout=10)
+        r = Request.new(
+            path=f"/3/device/{token}",
+            header={
+                "apns-priority": str(priority.value),
+                "apns-push-type": notification.push_type.value,
+                **({"apns-id": apns_id} if apns_id else {}),
+                **({"apns-expiration": str(expiration)} if expiration else {}),
+                **({"apns-topic": topic} if topic else {}),
+                **({"apns-collapse-id": collapse_id} if collapse_id else {}),
+            },
+            data=notification.get_dict(),
+            timeout=10,
+        )
         response_id_1 = (await self.pool.post(r)).apns_id
 
         url, request_headers, request_body = encode_request(

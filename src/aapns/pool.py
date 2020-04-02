@@ -8,18 +8,11 @@ from asyncio import (
     wait_for,
 )
 from contextlib import suppress
-from dataclasses import dataclass, field
 from itertools import count
 from logging import getLogger
 from random import shuffle
 from time import time
 from typing import Set
-from unittest.mock import patch
-
-import h2.config
-import h2.connection
-import h2.settings
-import yarl
 
 from .connection import (
     Blocked,

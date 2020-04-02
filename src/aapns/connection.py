@@ -20,7 +20,6 @@ from urllib.parse import urlparse
 import h2.config
 import h2.connection
 import h2.settings
-from yarl import URL
 
 # Apple limits APN payload (data) to 4KB or 5KB, depending.
 # Request header is not subject to flow control in HTTP/2
@@ -246,7 +245,9 @@ class Connection:
         self.last_new_sid = sid
 
         ch = self.channels[sid] = Channel(sid, None, [])
-        self.conn.send_headers(sid, req.header, end_stream=False)
+        self.conn.send_headers(
+            sid, req.header_with(self.host, self.port), end_stream=False
+        )
         # FIXME don't we have to increment global flow control
         # also on reception of stream X data?
         self.conn.increment_flow_control_window(2 ** 16, stream_id=sid)
@@ -313,29 +314,20 @@ class FormatError(Exception):
     """Response was weird."""
 
 
-def authority(url: URL):
-    if (
-        url.port is None
-        or url.scheme == "http"
-        and url.port == 80
-        or url.scheme == "https"
-        and url.port == 443
-    ):
-        return url.host
-    else:
-        return f"{url.host}:{url.port}"
-
-
 @dataclass
 class Request:
     header: tuple
     body: bytes
     deadline: float
 
+    def header_with(self, host: str, port: int) -> tuple:
+        """Request header including :authority pseudo header field for target server"""
+        return ((":authority", f"{host}:{port}"),) + self.header
+
     @classmethod
     def new(
         cls,
-        url: str,
+        path: str,
         header: Optional[dict],
         data: dict,
         timeout: Optional[float] = None,
@@ -348,10 +340,8 @@ class Request:
         elif deadline is None:
             deadline = inf
 
-        u = URL(url)
-        pseudo = dict(
-            method="POST", scheme=u.scheme, authority=authority(u), path=u.path_qs
-        )
+        assert path.startswith("/")
+        pseudo = dict(method="POST", scheme="https", path=path)
         h = tuple((f":{k}", v) for k, v in pseudo.items()) + tuple(
             (header or {}).items()
         )
