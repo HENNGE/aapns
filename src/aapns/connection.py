@@ -26,6 +26,7 @@ import h2.settings
 # Data is subject to framing and padding, but those are minor.
 MAX_NOTIFICATION_PAYLOAD_SIZE = 5120
 REQUIRED_FREE_SPACE = 6000
+logger = getLogger(__package__)
 
 
 @dataclass
@@ -52,7 +53,7 @@ class Connection:
     def __repr__(self):
         return f"<Connection {self.state} {self.host}:{self.port} buffered:{self.buffered} inflight:{self.inflight}>"
 
-    def __init__(self, origin: str, ssl=None, logger=None):
+    def __init__(self, origin: str, ssl=None):
         self.channels = dict()
         url = urlparse(origin)
         assert url.scheme == "https"
@@ -66,7 +67,6 @@ class Connection:
         self.host = url.hostname
         self.port = url.port or 443
         self.ssl = ssl if ssl else create_ssl_context()
-        self.logger = logger or getLogger("aapns")
 
     async def __aenter__(self):
         assert ssl.OP_NO_TLSv1 in self.ssl.options
@@ -184,7 +184,7 @@ class Connection:
                     break
 
                 for event in self.conn.receive_data(data):
-                    self.logger.debug("APN: %s", event)
+                    logger.debug("APN: %s", event)
 
                     if isinstance(event, h2.events.RemoteSettingsChanged):
                         m = event.changed_settings.get(
@@ -203,7 +203,7 @@ class Connection:
 
                     if not sid and error is not None:
                         # FIXME break the connection,but give users a chance to complete
-                        self.logger.warning("Bad error %s", event)
+                        logger.warning("Bad error %s", event)
                         self.closing = True
 
                 self.please_write.set()
@@ -215,7 +215,7 @@ class Connection:
                 # * a stream getting closed (but not half-closed)
                 # * closing / closed change
         except Exception:
-            self.logger.exception("background read task died")
+            logger.exception("background read task died")
         finally:
             self.closing = self.closed = True
             for sid, ch in self.channels.items():
@@ -293,7 +293,7 @@ class Connection:
                         self.please_write.clear()
 
         except Exception:
-            self.logger.exception("background write task died")
+            logger.exception("background write task died")
         finally:
             self.closed = True
 

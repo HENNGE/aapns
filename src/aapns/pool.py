@@ -25,6 +25,8 @@ from .connection import (
     create_ssl_context,
 )
 
+logger = getLogger(__package__)
+
 
 class Pool:
     """Super-silly, fixed-size connection pool"""
@@ -41,7 +43,7 @@ class Pool:
             dying:
             {dying}>"""
 
-    def __init__(self, base_url: str, size=10, ssl=None, logger=None):
+    def __init__(self, base_url: str, size=10, ssl=None):
         self.base_url = base_url
         self.conn: Set[Connection] = set()
         self.dying: Set[Connection] = set()
@@ -49,7 +51,6 @@ class Pool:
         assert size > 0
         self.size = size
         self._size_event = Event()
-        self.logger = logger or getLogger("aapns")
 
     def resize(self, size):
         assert size > 0
@@ -84,7 +85,7 @@ class Pool:
                     await c.__aenter__()
                     self.conn.add(c)
                 except Exception:
-                    self.logger.exception("New connection failed")
+                    logger.exception("New connection failed")
                     break
 
             # FIXME wait for a trigger:

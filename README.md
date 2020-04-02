@@ -79,8 +79,7 @@ req = Request.new(
 async with Pool(
         "https://api.development.push.apple.com",
         size=10,  # default
-        ssl=ssl_context,
-        logger=<optional>) as pool:
+        ssl=ssl_context) as pool:
     try:
         resp = await pool.post(req)
         assert resp.code == 200
@@ -112,8 +111,7 @@ req = Request.new(
 
 async with Connection(
         "https://api.development.push.apple.com",
-        ssl=ssl_context,
-        logger=<optional>) as conn:
+        ssl=ssl_context) as conn:
     try:
         resp = await conn.post(req)
         assert resp.code == 200
