@@ -1,4 +1,5 @@
 import json
+from logging import getLogger
 from typing import *
 
 import attr
@@ -16,6 +17,7 @@ except ModuleNotFoundError:
     from httpx._config import DEFAULT_TIMEOUT_CONFIG, TimeoutTypes
 
 
+logger = getLogger(__package__)
 Headers = List[Tuple[str, str]]
 
 
@@ -116,7 +118,7 @@ class APNS:
         )
 
         response_id_2 = await handle_response(response)
-        self.logger.warn(f"-> {response_id_1}, {response_id_2}")
+        logger.warn(f"-> {response_id_1}, {response_id_2}")
         return response_id_1
 
     async def close(self):

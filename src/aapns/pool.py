@@ -7,7 +7,7 @@ from asyncio import (
     sleep,
     wait_for,
 )
-from contextlib import suppress
+from contextlib import contextmanager, suppress
 from itertools import count
 from logging import getLogger
 from random import shuffle
@@ -31,26 +31,47 @@ logger = getLogger(__package__)
 class Pool:
     """Super-silly, fixed-size connection pool"""
 
-    closing = closed = False
-    base_url = None
+    started = closing = closed = False
+    origin = None
+    errors = retrying = completed = 0
 
-    def __str__(self):
-        alive = "\n".join(map(str, self.conn))
-        dying = "\n".join(map(str, self.dying))
-        return f"""<Pool
-            alive:
-            {alive}
-            dying:
-            {dying}>"""
+    def __repr__(self):
+        bits = [
+            self.state,
+            self.origin,
+            f"alive:{len(self.conn)}",
+            f"dying:{len(self.dying)}",
+        ]
+        if self.state != "closed":
+            all = self.conn | self.dying
+            bits.append(f"buffered:{sum(c.buffered for c in all)}")
+            bits.append(f"inflight:{sum(c.inflight for c in all)}")
+        bits.append(f"retrying:{self.retrying}")
+        bits.append(f"completed:{self.completed}")
+        bits.append(f"errors:{self.errors}")
+        return "<Pool %s>" % " ".join(bits)
 
-    def __init__(self, base_url: str, size=10, ssl=None):
-        self.base_url = base_url
+    def __init__(self, origin: str, size=10, ssl=None):
+        self.origin = origin
         self.conn: Set[Connection] = set()
         self.dying: Set[Connection] = set()
         self.ssl = ssl if ssl else create_ssl_context()
         assert size > 0
         self.size = size
         self._size_event = Event()
+
+    @property
+    def state(self):
+        if not self.bg:
+            return "new"
+        elif not self.started:
+            return "starting"
+        elif not self.closing:
+            return "active"
+        elif not self.closed:
+            return "closing"
+        else:
+            return "closed"
 
     def resize(self, size):
         assert size > 0
@@ -80,7 +101,7 @@ class Pool:
                     await c.__aexit__(None, None, None)
 
             while len(self.conn) < self.size:
-                c = Connection(self.base_url, ssl=self.ssl)
+                c = Connection(self.origin, ssl=self.ssl)
                 try:
                     await c.__aenter__()
                     self.conn.add(c)
@@ -97,10 +118,9 @@ class Pool:
 
     async def __aenter__(self):
         self.bg = create_task(self.background_resize(), name="bg-resize")
-        self.conn = set(
-            Connection(self.base_url, ssl=self.ssl) for i in range(self.size)
-        )
+        self.conn = set(Connection(self.origin, ssl=self.ssl) for i in range(self.size))
         await gather(*(c.__aenter__() for c in self.conn))
+        self.started = True
         return self
 
     async def __aexit__(self, exc_type, exc, tb):
@@ -117,6 +137,41 @@ class Pool:
             )
         finally:
             self.closed = True
+
+    async def post(self, req: "Request") -> "Response":
+        with self.count_requests():
+            for delay in (10 ** i for i in count(-3, 0.5)):
+                if self.closing:
+                    raise Closed()
+
+                try:
+                    return await self.post_once(req)
+                except Blocked:
+                    pass
+
+                if self.closing:
+                    raise Closed()
+
+                if time() + delay > req.deadline:
+                    raise Timeout()
+
+                try:
+                    self.retrying += 1
+                    await sleep(delay)
+                finally:
+                    self.retrying -= 1
+            else:
+                raise Timeout()
+
+    @contextmanager
+    def count_requests(self):
+        try:
+            yield
+        except:
+            self.errors += 1
+            raise
+        else:
+            self.completed += 1
 
     async def post_once(self, req: "Request") -> "Response":
         # FIXME ideally, follow weighted round-robin discipline:
@@ -140,23 +195,3 @@ class Pool:
                 pass
         else:
             raise Blocked()
-
-    async def post(self, req: "Request") -> "Response":
-        for delay in (10 ** i for i in count(-3, 0.5)):
-            if self.closing:
-                raise Closed()
-
-            try:
-                return await self.post_once(req)
-            except Blocked:
-                pass
-
-            if self.closing:
-                raise Closed()
-
-            if time() + delay > req.deadline:
-                raise Timeout()
-
-            await sleep(delay)
-        else:
-            raise Timeout()

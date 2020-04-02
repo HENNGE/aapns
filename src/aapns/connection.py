@@ -45,13 +45,19 @@ class Connection:
     # * closed: totally dead
     # * fixme: __aexit__() finished
     closed = closing = False
+    outcome: str = None
     r = w = bgr = bgw = None
     channels: Dict[int, Channel]
     max_concurrent_streams = 100  # recommended in RFC7540#section-6.5.2
     last_new_sid = last_sent_sid = -1  # client streams are odd
 
     def __repr__(self):
-        return f"<Connection {self.state} {self.host}:{self.port} buffered:{self.buffered} inflight:{self.inflight}>"
+        bits = [self.state, f"{self.host}:{self.port}"]
+        if self.state != "closed":
+            bits.extend([f"buffered:{self.buffered}", f"inflight:{self.inflight}"])
+        else:
+            bits.append(f"outcome:{self.outcome}")
+        return "<Connection %s>" % " ".join(bits)
 
     def __init__(self, origin: str, ssl=None):
         self.channels = dict()
@@ -192,6 +198,18 @@ class Connection:
                         )
                         if m:
                             self.max_concurrent_streams = m.new_value
+                    elif isinstance(event, h2.events.ConnectionTerminated):
+                        self.outcome = None
+                        if event.additional_data:
+                            try:
+                                self.outcome = json.loads(
+                                    event.additional_data.decode("utf-8")
+                                )["reason"]
+                            except Exception:
+                                self.outcome = str(self.additional_data[:100])
+                        else:
+                            self.outcome = str(event.error_code)
+                        logger.info("Connection %s done %s", self, self.outcome)
 
                     sid = getattr(event, "stream_id", 0)
                     error = getattr(event, "error_code", None)

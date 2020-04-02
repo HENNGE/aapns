@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from asyncio import get_event_loop
 from typing import Dict
 
@@ -87,6 +88,7 @@ def main(
     verbose,
     local,
 ):
+    logging.basicConfig(level=logging.DEBUG if verbose else logging.INFO)
     ctx.obj = Context(
         token=token,
         cert=client_cert_path,
