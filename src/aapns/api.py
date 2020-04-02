@@ -130,7 +130,12 @@ async def create_client(
     timeout: TimeoutTypes = DEFAULT_TIMEOUT_CONFIG,
     cafile: str = None,
 ) -> APNS:
-    client = AsyncClient(http2=True, cert=client_cert_path, timeout=timeout)
+    client = AsyncClient(
+        http2=True,
+        cert=client_cert_path,
+        timeout=timeout,
+        **{"verify": cafile} if cafile else {},
+    )
     base_url = f"https://{server.host}:{server.port}"
     ssl_context = create_ssl_context()
     if cafile:
