@@ -47,7 +47,7 @@ async def test_many(count=1000):
     try:
         async with Pool("https://localhost:2197", ssl=ssl_context) as c:
             await sleep(0.1)
-            await gather(*[one_request(c, i) for i in range(-2, count, 2)])
+            await gather(*[one_request(c, i) for i in range(count)])
     except Closed:
         logging.warning("Oops, closed")
     finally:
