@@ -123,7 +123,7 @@ class APNS:
 
     async def close(self):
         await self.client.aclose()
-        await self.pool.__aexit__(None, None, None)
+        await self.pool.close()
 
 
 async def create_client(
@@ -145,6 +145,5 @@ async def create_client(
     if cafile:
         ssl_context.load_verify_locations(cafile=cafile)
     ssl_context.load_cert_chain(certfile=client_cert_path, keyfile=client_cert_path)
-    apns = APNS(client, logger, server, Pool(base_url, ssl=ssl_context))
-    await apns.pool.__aenter__()
+    apns = APNS(client, logger, server, await Pool.create(base_url, ssl=ssl_context))
     return apns

@@ -68,6 +68,7 @@ class Connection:
         return "<Connection %s>" % " ".join(bits)
 
     def __init__(self, origin: str, ssl=None):
+        """ Private. Use `await Connection.create(...) instead. """
         self.channels = dict()
         url = urlparse(origin)
         assert url.scheme == "https"
@@ -81,6 +82,12 @@ class Connection:
         self.host = url.hostname
         self.port = url.port or 443
         self.ssl = ssl if ssl else create_ssl_context()
+
+    @classmethod
+    async def create(cls, origin: str, ssl: Optional[ssl.SSLContext] = None):
+        self = cls(origin, ssl=ssl)
+        await self.__aenter__()
+        return self
 
     async def __aenter__(self):
         assert ssl.OP_NO_TLSv1 in self.ssl.options
@@ -167,7 +174,12 @@ class Connection:
         )
 
     async def __aexit__(self, exc_type, exc, tb):
+        await self.close()
+
+    async def close(self):
         self.closing = True
+        if not self.outcome:
+            self.outcome = "Closed"
         try:
             # FIXME distinguish between cancellation and context exception
             if self.bgw:

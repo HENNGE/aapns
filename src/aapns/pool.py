@@ -53,7 +53,14 @@ class Pool:
         bits.append(f"errors:{self.errors}")
         return "<Pool %s>" % " ".join(bits)
 
+    @classmethod
+    async def create(cls, origin: str, size=2, ssl=None):
+        self = cls(origin, size, ssl)
+        await self.__aenter__()
+        return self
+
     def __init__(self, origin: str, size=2, ssl=None):
+        """ Private, use `await Pool.create(...) instead. """
         self.origin = origin
         self.conn: Set[Connection] = set()
         self.dying: Set[Connection] = set()
@@ -61,6 +68,12 @@ class Pool:
         assert size > 0
         self.size = size
         self._size_event = Event()
+
+    async def __aenter__(self):
+        await gather(*(self.add_one_connection() for i in range(self.size)))
+        self.maintenance = create_task(self.maintain(), name="maintenance")
+        self.started = True
+        return self
 
     @property
     def state(self):
@@ -129,35 +142,27 @@ class Pool:
 
     async def add_one_connection(self):
         try:
-            c = Connection(self.origin, ssl=self.ssl)
-            await c.__aenter__()
+            c = await Connection.create(self.origin, ssl=self.ssl)
             self.conn.add(c)
             self.cert_hook(c)
             return True
         except Exception:
             logger.exception("Failed creating APN connection")
-            self.cert_hook(c)
-
-    async def __aenter__(self):
-        await gather(*(self.add_one_connection() for i in range(self.size)))
-        self.maintenance = create_task(self.maintain(), name="maintenance")
-        self.started = True
-        return self
 
     async def __aexit__(self, exc_type, exc, tb):
+        await self.close()
+
+    async def close(self):
         self.closing = True
         if not self.outcome:
-            self.outcome = str(exc) or "Exit"
+            self.outcome = "Closed"
         try:
             if self.maintenance:
                 self.maintenance.cancel()
                 with suppress(CancelledError):
                     await self.maintenance
 
-            await gather(
-                *(c.__aexit__(exc_type, exc, tb) for c in self.conn),
-                *(c.__aexit__(exc_type, exc, tb) for c in self.dying),
-            )
+            await gather(*(c.close() for c in self.conn | self.dying))
         finally:
             self.closed = True
 
@@ -183,8 +188,8 @@ class Pool:
                     await sleep(delay)
                 finally:
                     self.retrying -= 1
-            else:
-                raise Timeout()
+
+            raise Timeout()
 
     @contextmanager
     def count_requests(self):
