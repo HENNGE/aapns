@@ -41,7 +41,7 @@ async def test_many(count=1000):
     mon = create_task(monitor())
 
     ssl_context = create_ssl_context()
-    ssl_context.load_verify_locations(cafile="tests/stress/nginx/cert.pem")
+    ssl_context.load_verify_locations(cafile="tests/stress/go1/cert.pem")
     ssl_context.load_cert_chain(certfile=".fake-cert", keyfile=".fake-cert")
 
     try:

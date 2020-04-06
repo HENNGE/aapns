@@ -43,7 +43,7 @@ if __name__ == "__main__":
     elif "--local" in argv:
         argv.remove("--local")
         host = "localhost"
-        ssl_context.load_verify_locations(cafile="tests/stress/nginx/cert.pem")
+        ssl_context.load_verify_locations(cafile="tests/stress/go1/cert.pem")
     else:
         raise Exception("Must pass flag: --prod/--sandbox/--local")
 
