@@ -1,7 +1,7 @@
 package main
 
 import (
-        "context"
+	"context"
 	"log"
 	"net/http"
 	"net/http/httputil"
@@ -10,13 +10,13 @@ import (
 )
 
 type Handler struct {
-        server *http.Server
+	server *http.Server
 }
 
 func main() {
-        handler := &Handler{}
-        server := &http.Server{Addr: ":2197", Handler: handler}
-        handler.server = server
+	handler := &Handler{}
+	server := &http.Server{Addr: ":2197", Handler: handler}
+	handler.server = server
 	log.Printf("Serving on https://0.0.0.0:2197")
 	log.Fatal(server.ListenAndServeTLS("cert.pem", "key.pem"))
 }
@@ -30,5 +30,5 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	os.Stdout.Write(append(dump, "\n\n"...))
 	time.Sleep(time.Second)
 	w.Write([]byte("{}"))
-        h.server.Shutdown(context.Background())
+	h.server.Shutdown(context.Background())
 }

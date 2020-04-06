@@ -21,7 +21,8 @@ func handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("apns-id", "42424242-4242-4242-4242-424242424242")
+	w.WriteHeader(400)
 	os.Stdout.Write(append(dump, "\n\n"...))
 	time.Sleep(time.Second)
-	w.Write([]byte("{}"))
+	w.Write([]byte("{\"reason\": \"BadDeviceToken\"}"))
 }
