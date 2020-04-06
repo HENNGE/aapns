@@ -3,19 +3,10 @@ from logging import getLogger
 from typing import *
 
 import attr
-from httpx import URL, AsyncClient, Response
 from structlog import BoundLogger
 
 from . import config, errors, models
 from .pool import Pool, Request, create_ssl_context
-
-try:
-    # httpx 0.11.x
-    from httpx.config import DEFAULT_TIMEOUT_CONFIG, TimeoutTypes
-except ModuleNotFoundError:
-    # httpx 0.12.x
-    from httpx._config import DEFAULT_TIMEOUT_CONFIG, TimeoutTypes
-
 
 logger = getLogger(__package__)
 Headers = List[Tuple[str, str]]
@@ -31,7 +22,7 @@ def encode_request(
     priority: config.Priority = config.Priority.normal,
     topic: Optional[str] = None,
     collapse_id: Optional[str] = None,
-) -> Tuple[URL, Headers, bytes]:
+) -> Tuple[str, Headers, bytes]:
     request_body = notification.encode()
     request_headers = [
         ("apns-priority", str(priority.value)),
@@ -47,7 +38,7 @@ def encode_request(
     if collapse_id:
         request_headers.append(("apns-collapse-id", collapse_id))
     return (
-        URL(f"https://{server.host}:{server.port}/3/device/{token}"),
+        f"https://{server.host}:{server.port}/3/device/{token}",
         request_headers,
         request_body,
     )
