@@ -12,7 +12,7 @@ from itertools import count
 from logging import getLogger
 from random import shuffle
 from time import time
-from typing import Set
+from typing import Optional, Set
 
 from .connection import (
     Blocked,
@@ -34,6 +34,7 @@ class Pool:
     started = closing = closed = False
     origin = None
     errors = retrying = completed = 0
+    outcome: Optional[str] = None
 
     def __repr__(self):
         bits = [
@@ -51,7 +52,7 @@ class Pool:
         bits.append(f"errors:{self.errors}")
         return "<Pool %s>" % " ".join(bits)
 
-    def __init__(self, origin: str, size=10, ssl=None):
+    def __init__(self, origin: str, size=2, ssl=None):
         self.origin = origin
         self.conn: Set[Connection] = set()
         self.dying: Set[Connection] = set()
@@ -78,6 +79,11 @@ class Pool:
         self.size = size
         self._size_evet.set()
 
+    def cert_hook(self, c):
+        if not self.outcome and c.outcome == "BadCertificateEnvironment":
+            self.closing = True
+            self.outcome = c.outcome
+
     async def background_resize(self):
         while True:
             if self.closing or self.closed:
@@ -87,44 +93,60 @@ class Pool:
                 if c.closing:
                     self.conn.remove(c)
                     self.dying.add(c)
+                    self.cert_hook(c)
 
             while len(self.conn) > self.size:
                 c = self.conn.pop()
                 c.closing = True
                 self.dying.add(c)
+                self.cert_hook(c)
 
             for c in list(self.dying):
                 if c.closed:
                     self.dying.remove(c)
+                    self.cert_hook(c)
                 elif not c.channels:
                     self.dying.remove(c)
-                    await c.__aexit__(None, None, None)
+                    try:
+                        await c.__aexit__(None, None, None)
+                    finally:
+                        self.cert_hook(c)
+                if self.closing or self.closed:
+                    return
 
             while len(self.conn) < self.size:
-                c = Connection(self.origin, ssl=self.ssl)
-                try:
-                    await c.__aenter__()
-                    self.conn.add(c)
-                except Exception:
-                    logger.exception("New connection failed")
+                if not await self.add_one_connection():
                     break
+                if self.closing or self.closed:
+                    return
 
             # FIXME wait for a trigger:
-            # * resize
             # * some connection state has changed
             with suppress(TimeoutError):
                 await wait_for(self._size_event.wait(), timeout=1)
             self._size_event.clear()
 
+    async def add_one_connection(self):
+        try:
+            c = Connection(self.origin, ssl=self.ssl)
+            await c.__aenter__()
+            self.conn.add(c)
+            self.cert_hook(c)
+            return True
+        except Exception:
+            logger.exception("Failed creating APN connection")
+            self.cert_hook(c)
+
     async def __aenter__(self):
+        await gather(*(self.add_one_connection() for i in range(self.size)))
         self.bg = create_task(self.background_resize(), name="bg-resize")
-        self.conn = set(Connection(self.origin, ssl=self.ssl) for i in range(self.size))
-        await gather(*(c.__aenter__() for c in self.conn))
         self.started = True
         return self
 
     async def __aexit__(self, exc_type, exc, tb):
         self.closing = True
+        if not self.outcome:
+            self.outcome = str(exc) or "Exit"
         try:
             if self.bg:
                 self.bg.cancel()
@@ -142,7 +164,7 @@ class Pool:
         with self.count_requests():
             for delay in (10 ** i for i in count(-3, 0.5)):
                 if self.closing:
-                    raise Closed()
+                    raise Closed(self.outcome)
 
                 try:
                     return await self.post_once(req)
@@ -150,7 +172,7 @@ class Pool:
                     pass
 
                 if self.closing:
-                    raise Closed()
+                    raise Closed(self.outcome)
 
                 if time() + delay > req.deadline:
                     raise Timeout()
