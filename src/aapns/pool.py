@@ -35,6 +35,7 @@ class Pool:
     origin = None
     errors = retrying = completed = 0
     outcome: Optional[str] = None
+    maintenance = None
 
     def __repr__(self):
         bits = [
@@ -63,7 +64,7 @@ class Pool:
 
     @property
     def state(self):
-        if not self.bg:
+        if not self.maintenance:
             return "new"
         elif not self.started:
             return "starting"
@@ -84,7 +85,7 @@ class Pool:
             self.closing = True
             self.outcome = c.outcome
 
-    async def background_resize(self):
+    async def maintain(self):
         while True:
             if self.closing or self.closed:
                 return
@@ -139,7 +140,7 @@ class Pool:
 
     async def __aenter__(self):
         await gather(*(self.add_one_connection() for i in range(self.size)))
-        self.bg = create_task(self.background_resize(), name="bg-resize")
+        self.maintenance = create_task(self.maintain(), name="maintenance")
         self.started = True
         return self
 
@@ -148,10 +149,10 @@ class Pool:
         if not self.outcome:
             self.outcome = str(exc) or "Exit"
         try:
-            if self.bg:
-                self.bg.cancel()
+            if self.maintenance:
+                self.maintenance.cancel()
                 with suppress(CancelledError):
-                    await self.bg
+                    await self.maintenance
 
             await gather(
                 *(c.__aexit__(exc_type, exc, tb) for c in self.conn),
