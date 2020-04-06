@@ -107,8 +107,11 @@ def main(
 @click.option("--title", default=None)
 @click.pass_context
 def simple(ctx, title, body):
-    notification = models.Notification(alert=models.Alert(title=title, body=body))
-    send(ctx.obj, notification)
+    try:
+        notification = models.Notification(alert=models.Alert(title=title, body=body))
+        send(ctx.obj, notification)
+    except Exception:
+        logging.exception("Simple notification")
 
 
 @main.command("localized")
@@ -119,11 +122,14 @@ def simple(ctx, title, body):
 @click.option("--badge", type=click.INT)
 @click.pass_context
 def localized(ctx, title, body, title_args, body_args, badge):
-    notification = models.Notification(
-        alert=models.Alert(
-            body=models.Localized(body, list(body_args)),
-            title=models.Localized(title, list(title_args)) if title else title,
-        ),
-        badge=badge,
-    )
-    send(ctx.obj, notification)
+    try:
+        notification = models.Notification(
+            alert=models.Alert(
+                body=models.Localized(body, list(body_args)),
+                title=models.Localized(title, list(title_args)) if title else title,
+            ),
+            badge=badge,
+        )
+        send(ctx.obj, notification)
+    except Exception:
+        logging.exception("Localised notification")
