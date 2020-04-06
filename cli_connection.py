@@ -10,7 +10,8 @@ USAGE = (
 
 
 async def send_several(ssl_context, base_url, requests):
-    async with Connection(base_url, ssl=ssl_context) as c:
+    c = await Connection.create(base_url, ssl=ssl_context)
+    try:
         tasks = []
         for r in requests:
             logging.info("Sleeping a bit")
@@ -27,6 +28,9 @@ async def send_several(ssl_context, base_url, requests):
             # Apns-Id, Apns-Expiration, Apns-Topic, Apns-Collapse-Id
             tasks.append(asyncio.create_task(post(r)))
         await asyncio.gather(*tasks)
+    finally:
+        await c.close()
+
 
 
 if __name__ == "__main__":

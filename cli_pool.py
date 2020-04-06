@@ -45,9 +45,12 @@ async def test_many(count=1000):
     ssl_context.load_cert_chain(certfile=".fake-cert", keyfile=".fake-cert")
 
     try:
-        async with Pool("https://localhost:2197", ssl=ssl_context) as c:
+        c = await Pool.create("https://localhost:2197", ssl=ssl_context)
+        try:
             await sleep(0.1)
             await gather(*[one_request(c, i) for i in range(count)])
+        finally:
+            await c.close()
     except Closed:
         logging.warning("Oops, closed")
     finally:
