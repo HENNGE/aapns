@@ -26,6 +26,14 @@ import h2.settings
 # Data is subject to framing and padding, but those are minor.
 MAX_NOTIFICATION_PAYLOAD_SIZE = 5120
 REQUIRED_FREE_SPACE = 6000
+# OK response is empty
+# Error response is short json, ~30 bytes in size
+MAX_RESPONSE_SIZE = 2 ** 16
+# Inbound connection flow control window
+# It's quite arbitrary, guided by:
+# * concurrent requests limit, server limit being 1000 today
+# * expected response size, see above
+CONNECTION_WINDOW_SIZE = 2 ** 24
 logger = getLogger(__package__)
 
 
@@ -104,12 +112,13 @@ class Connection:
                 # MAX_HEADER_LIST_SIZE 8000
                 h2.settings.SettingCodes.MAX_CONCURRENT_STREAMS: 2 ** 20,
                 h2.settings.SettingCodes.MAX_HEADER_LIST_SIZE: 2 ** 16 - 1,
+                h2.settings.SettingCodes.INITIAL_WINDOW_SIZE: MAX_RESPONSE_SIZE,
             },
         )
 
         self.conn.initiate_connection()
         # APN response body is empty (ok) or small (error)
-        self.conn.increment_flow_control_window(2 ** 24)
+        self.conn.increment_flow_control_window(CONNECTION_WINDOW_SIZE)
         self.please_write.set()
 
         self.bgr = create_task(self.background_read(), name="bg-read")
@@ -191,6 +200,9 @@ class Connection:
 
                 for event in self.conn.receive_data(data):
                     logger.debug("APN: %s", event)
+                    sid = getattr(event, "stream_id", 0)
+                    error = getattr(event, "error_code", None)
+                    ch = self.channels.get(sid)
 
                     if isinstance(event, h2.events.RemoteSettingsChanged):
                         m = event.changed_settings.get(
@@ -210,21 +222,28 @@ class Connection:
                         else:
                             self.outcome = str(event.error_code)
                         logger.info("Connection %s done %s", self, self.outcome)
-
-                    sid = getattr(event, "stream_id", 0)
-                    error = getattr(event, "error_code", None)
-                    ch = self.channels.get(sid)
-                    if ch:
-                        ch.ev.append(event)
-                        if not ch.fut.done():
-                            ch.fut.set_result(None)
-
-                    if not sid and error is not None:
+                        self.closing = True
+                    elif not sid and error is not None:
                         # FIXME break the connection,but give users a chance to complete
                         logger.warning("Bad error %s", event)
+                        self.outcome = str(error)
                         self.closing = True
+                    else:
+                        if isinstance(event, h2.events.DataReceived):
+                            # Stream flow control is responsibility of the channel.
+                            # Connection flow control is handled here.
+                            self.conn.increment_flow_control_window(
+                                event.flow_controlled_length
+                            )
+                        if ch:
+                            ch.ev.append(event)
+                            if not ch.fut.done():
+                                ch.fut.set_result(None)
 
+                # Somewhat inefficient: wake up background writer just in case
+                # it could be that we've received something that h2 needs to acknowledge
                 self.please_write.set()
+
                 # FIXME notify users about possible change to `.blocked`
                 # FIXME selective:
                 # * h2.events.WindowUpdated
@@ -245,18 +264,17 @@ class Connection:
 
         now = time()
         if now > req.deadline:
-            raise Timeout()
+            raise Timeout("Request timed out")
         if self.closing or self.closed:
-            raise Closed()
+            raise Closed("Connection is closed", self.outcome)
         if self.blocked:
             raise Blocked()
 
         try:
             sid = self.conn.get_next_available_stream_id()
         except h2.NoAvailableStreamIDError:
-            # As of h2-3.2.0 this is permanent.
-            # FIXME ought we mark the connection as closing?
-            raise Closed()
+            self.closing = True
+            raise Closed("Connection is exhausted", self.outcome)
 
         assert sid not in self.channels
 
@@ -268,12 +286,12 @@ class Connection:
         )
         # FIXME don't we have to increment global flow control
         # also on reception of stream X data?
-        self.conn.increment_flow_control_window(2 ** 16, stream_id=sid)
+        self.conn.increment_flow_control_window(MAX_RESPONSE_SIZE, stream_id=sid)
         self.conn.send_data(sid, req.body, end_stream=True)
         self.please_write.set()
 
         try:
-            while not self.closing:
+            while not self.closed:
                 ch.fut = Future()
                 with suppress(TimeoutError):
                     await wait_for(ch.fut, req.deadline - now)
@@ -287,9 +305,16 @@ class Connection:
                         ch.body += event.data
                     elif isinstance(event, h2.events.StreamEnded):
                         return Response.new(ch.header, ch.body)
+                    elif len(ch.body) >= MAX_RESPONSE_SIZE:
+                        raise ResponseTooLarge()
             else:
-                raise Closed()
+                raise Closed(
+                    "Conection was closed while waiting for response", self.outcome
+                )
         finally:
+            # FIXME reset the stream, if:
+            # * connection is still alive, and
+            # * the stream didn't end yet
             del self.channels[sid]
 
     async def background_write(self):
@@ -330,6 +355,10 @@ class Timeout(Exception):
 
 class FormatError(Exception):
     """Response was weird."""
+
+
+class ResponseTooLarge(Exception):
+    f"""Server response was larger than {MAX_RESPONSE_SIZE}."""
 
 
 @dataclass
