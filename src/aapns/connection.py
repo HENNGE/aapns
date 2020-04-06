@@ -211,18 +211,18 @@ class Connection:
                         if m:
                             self.max_concurrent_streams = m.new_value
                     elif isinstance(event, h2.events.ConnectionTerminated):
-                        self.outcome = None
-                        if event.additional_data:
-                            try:
-                                self.outcome = json.loads(
-                                    event.additional_data.decode("utf-8")
-                                )["reason"]
-                            except Exception:
-                                self.outcome = str(self.additional_data[:100])
-                        else:
-                            self.outcome = str(event.error_code)
-                        logger.info("Connection %s done %s", self, self.outcome)
                         self.closing = True
+                        if not self.outcome:
+                            if event.additional_data:
+                                try:
+                                    self.outcome = json.loads(
+                                        event.additional_data.decode("utf-8")
+                                    )["reason"]
+                                except Exception:
+                                    self.outcome = str(self.additional_data[:100])
+                            else:
+                                self.outcome = str(event.error_code)
+                        logger.info("%s %s", self, self.outcome)
                     elif not sid and error is not None:
                         # FIXME break the connection,but give users a chance to complete
                         logger.warning("Bad error %s", event)
