@@ -17,8 +17,3 @@ services:
       nofile:
         soft: 20000
         hard: 40000
-    #volumes:
-        #- type: bind
-        #source: /Users/dima.tisnek/minio-data
-        #target: /data
-        #consistency: delegated
