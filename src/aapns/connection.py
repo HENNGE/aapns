@@ -183,7 +183,7 @@ class Connection:
             # at this point, we must release or cancel all pending requests
             for sid, ch in self.channels.items():
                 if ch.fut and not ch.fut.done():
-                    ch.fut.set_exception(Closed())
+                    ch.fut.set_exception(Closed(self.outcome))
 
             self.w.close()
             with suppress(ssl.SSLError):
@@ -251,13 +251,16 @@ class Connection:
                 # * [maybe] starting a stream
                 # * a stream getting closed (but not half-closed)
                 # * closing / closed change
+        except ConnectionError as e:
+            if not self.outcome:
+                self.outcome = str(e)
         except Exception:
             logger.exception("background read task died")
         finally:
             self.closing = self.closed = True
             for sid, ch in self.channels.items():
                 if ch.fut and not ch.fut.done():
-                    ch.fut.set_exception(Closed())
+                    ch.fut.set_exception(Closed(self.outcome))
 
     async def post(self, req: "Request") -> "Response":
         assert len(req.body) <= MAX_NOTIFICATION_PAYLOAD_SIZE
@@ -266,7 +269,7 @@ class Connection:
         if now > req.deadline:
             raise Timeout("Request timed out")
         if self.closing or self.closed:
-            raise Closed("Connection is closed", self.outcome)
+            raise Closed(self.outcome)
         if self.blocked:
             raise Blocked()
 
@@ -274,7 +277,9 @@ class Connection:
             sid = self.conn.get_next_available_stream_id()
         except h2.NoAvailableStreamIDError:
             self.closing = True
-            raise Closed("Connection is exhausted", self.outcome)
+            if not self.outcome:
+                self.outcome = "Exhausted"
+            raise Closed(self.outcome)
 
         assert sid not in self.channels
 
@@ -308,9 +313,7 @@ class Connection:
                     elif len(ch.body) >= MAX_RESPONSE_SIZE:
                         raise ResponseTooLarge()
             else:
-                raise Closed(
-                    "Conection was closed while waiting for response", self.outcome
-                )
+                raise Closed(self.outcome)
         finally:
             # FIXME reset the stream, if:
             # * connection is still alive, and
@@ -335,10 +338,13 @@ class Connection:
                         await self.please_write.wait()
                         self.please_write.clear()
 
+        except ConnectionError as e:
+            if not self.outcome:
+                self.outcome = str(e)
         except Exception:
             logger.exception("background write task died")
         finally:
-            self.closed = True
+            self.closing = self.closed = True
 
 
 class Blocked(Exception):

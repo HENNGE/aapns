@@ -21,7 +21,7 @@ async def send_several(ssl_context, base_url, requests):
                     logging.info("%s", r)
                     logging.info("%s", await c.post(r))
                 except Exception as rv:
-                    logging.info("%s", rv)
+                    logging.info("Failed with %r", rv)
 
             # FIXME 2. Optional header fields
             # Apns-Id, Apns-Expiration, Apns-Topic, Apns-Collapse-Id
