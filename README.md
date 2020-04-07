@@ -62,8 +62,8 @@ Use this API to maintain a fixed size connection pool and gain automatic retries
 Use this API to send notification en masse or generic RPC-like communication over HTTP/2.
 
 ```py
+from aapns.errors import APNSError, Closed, Timeout
 from aapns.pool import create_ssl_context, Pool, Request
-from aapns.pool import Closed, Timeout
 
 
 ssl_context = create_ssl_context()
@@ -86,7 +86,9 @@ async with Pool(
     except Timeout:
         ...  # the notification has expired
     except Closed:
-        ...  # the connection pool is done, rare
+        ...  # the connection pool is done, e.g. if client certificate has expired
+    except APNSError:
+        ...  # rare
 ```
 
 ### Low level API
@@ -96,8 +98,8 @@ Use this API if you want close control of a single connection to the server. A c
 This would be a good start for token authentication, https://github.com/HENNGE/aapns/issues/19.
 
 ```py
+from aapns.errors import APNSError, Blocked, Closed, Timeout
 from aapns.connection import create_ssl_context, Connection, Request
-from aapns.connection import Blocked, Closed, Timeout
 
 
 ssl_context = create_ssl_context()
@@ -121,6 +123,8 @@ async with Connection(
         ...  # the connection is no longer usable
     except Timeout:
         ...  # the notification has expired
+    except APNSError:
+        ...  # rare
 ```
 
 ### Technical notes
