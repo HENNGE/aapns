@@ -21,6 +21,8 @@ from urllib.parse import urlparse
 
 import h2.config
 import h2.connection
+import h2.events
+import h2.exceptions
 import h2.settings
 
 from .errors import Blocked, Closed, FormatError, ResponseTooLarge, Timeout
@@ -38,6 +40,9 @@ MAX_RESPONSE_SIZE = 2 ** 16
 # * concurrent requests limit, server limit being 1000 today
 # * expected response size, see above
 CONNECTION_WINDOW_SIZE = 2 ** 24
+# Connection establishment safety time limits
+CONNECTION_TIMEOUT = 5
+TLS_TIMEOUT = 5
 logger = getLogger(__package__)
 
 
@@ -119,10 +124,13 @@ class Connection:
         protocol.initiate_connection()
         protocol.increment_flow_control_window(CONNECTION_WINDOW_SIZE)
 
+        read_stream, write_stream = await wait_for(
+            open_connection(
+                host, port, ssl=ssl_context, ssl_handshake_timeout=TLS_TIMEOUT
+            ),
+            CONNECTION_TIMEOUT,
+        )
         try:
-            read_stream, write_stream = await open_connection(
-                host, port, ssl=ssl_context, ssl_handshake_timeout=5
-            )
             info = write_stream.get_extra_info("ssl_object")
             # FIXME better exceptions
             assert info, "HTTP/2 server is required"
@@ -182,9 +190,6 @@ class Connection:
             # could be kinda fixed by caching with clever invalidation...
             or self.protocol.open_outbound_streams >= self.max_concurrent_streams
         )
-
-    async def __aexit__(self, exc_type, exc, tb):
-        await self.close()
 
     async def close(self):
         self.closing = True
@@ -297,7 +302,7 @@ class Connection:
 
         try:
             sid = self.protocol.get_next_available_stream_id()
-        except h2.NoAvailableStreamIDError:
+        except h2.exceptions.NoAvailableStreamIDError:
             self.closing = True
             if not self.outcome:
                 self.outcome = "Exhausted"
