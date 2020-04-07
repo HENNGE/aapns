@@ -55,7 +55,7 @@ class Connection:
     # * closed: totally dead
     # * fixme: __aexit__() finished
     closed = closing = False
-    outcome: str = None
+    outcome: Optional[str] = None
     r = w = bgr = bgw = None
     channels: Dict[int, Channel]
     max_concurrent_streams = 100  # recommended in RFC7540#section-6.5.2

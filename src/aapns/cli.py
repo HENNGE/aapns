@@ -5,7 +5,6 @@ from typing import Dict
 
 import attr
 import click
-from structlog import get_logger
 
 from aapns import config, models
 from aapns.api import create_client
@@ -38,8 +37,7 @@ async def do_send(context: Context, notification: models.Notification) -> str:
     client = await create_client(
         context.cert,
         context.server,
-        logger=get_logger() if context.verbose else None,
-        cafile=".cafile" if context.server.host == "localhost" else None,
+        **{"cafile": ".cafile"} if context.server.host == "localhost" else {},
     )
     try:
         resp_id = await client.send_notification(

@@ -15,7 +15,6 @@ from cryptography.hazmat.primitives import serialization
 from h2.config import H2Configuration
 from h2.connection import H2Connection
 from h2.events import DataReceived, RequestReceived, StreamEnded
-from structlog import get_logger
 from tests.fake_client_cert import gen_certificate, gen_private_key
 
 
@@ -132,7 +131,6 @@ class FakeServer:
     lag = attr.ib(default=0)
     server = attr.ib(default=None)
     address = attr.ib(default=None)
-    logger = attr.ib(default=attr.Factory(get_logger))
     connections = attr.ib(default=attr.Factory(list))
 
     async def stop(self):

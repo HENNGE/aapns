@@ -1,9 +1,6 @@
-import json
-from logging import getLogger
-from typing import *
+from typing import Optional
 
 import attr
-from structlog import BoundLogger
 
 from . import config, errors, models
 from .pool import Pool, Request, create_ssl_context
@@ -46,12 +43,7 @@ class APNS:
 
 
 async def create_client(
-    client_cert_path: str,
-    server: config.Server,
-    *,
-    logger = None,  # FIXME remove
-    timeout = 10, # FIXME 
-    cafile: str = None,
+    client_cert_path: str, server: config.Server, *, cafile: Optional[str] = None,
 ) -> APNS:
     base_url = f"https://{server.host}:{server.port}"
     ssl_context = create_ssl_context()

@@ -12,8 +12,7 @@ Clients are created using the :py:func:`aapns.api.create_client` coroutine.
 argument, and a :py:class:`aapns.config.Server` object as second argument. You
 should be able to simply use :py:obj:`aapns.config.Production` or
 :py:obj:`aapns.config.Development` for the server argument depending on whether
-you want to use the production or testing endpoints. You may pass a bound structlog
-logger as a third, keyword only argument named ``logger`` to enable logging.
+you want to use the production or testing endpoints.
 
 
 Sending Notifications

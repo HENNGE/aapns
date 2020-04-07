@@ -8,16 +8,14 @@ API Reference
 
 .. py:module:: aapns.api
 
-.. py:function:: create_client(client_cert_path, server, *, logger=None, timeout=None)
+.. py:function:: create_client(client_cert_path, server, *, cafile=None)
 
     This is a coroutine. Creates an APNS client.
 
     :param str client_cert_path: Path to the client certificate to authenticate with
     :param server: Server to connect to
     :type server: :py:class:`aapns.config.Server`
-    :param logger: Optional structlog logger to use for logging
-    :type logger: :py:class:`structlog.BoundLogger`
-    :param float timeout: Optional timeout for connections and requests. If set to ``None``, no timeout will be used.
+    :param srt cafile: Optional file path to server CA bundle
     :return: An instance of :py:class:`APNS`
     :rtype: :py:class:`APNS`
 

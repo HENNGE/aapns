@@ -10,7 +10,6 @@ from aapns.config import Server
 from aapns.errors import BadDeviceToken, Disconnected
 from aapns.models import Alert, Notification
 from httpx import AsyncClient
-from structlog import get_logger
 from tests.fake_apns_server import start_fake_apns_server
 from tests.fake_client_cert import create_client_cert
 
@@ -45,9 +44,7 @@ async def client(client_cert_path, monkeypatch):
 
     monkeypatch.setattr(AsyncClient, "__init__", non_verify_init)
     async with start_fake_apns_server() as server:
-        apns = await create_client(
-            client_cert_path, Server(*server.address), timeout=10, logger=get_logger()
-        )
+        apns = await create_client(client_cert_path, Server(*server.address))
         try:
             yield apns
         finally:

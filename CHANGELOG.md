@@ -1,5 +1,14 @@
 # Changelog
 
+## 20.4
+
+* Significantly more robust
+* Better latency, as connections are created ahead of time
+* Better concurrency using HTTP/2 streams
+* Implemented connection pool
+* Rewritten to use `h2` directly
+* Removed httpx and structlog dependencies
+
 ## 20.2
 
 * Updated httpx.
