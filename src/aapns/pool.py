@@ -14,16 +14,8 @@ from random import shuffle
 from time import time
 from typing import Optional, Set
 
-from .connection import (
-    Blocked,
-    Closed,
-    Connection,
-    FormatError,
-    Request,
-    Response,
-    Timeout,
-    create_ssl_context,
-)
+from .connection import Request, Response, create_ssl_context
+from .errors import Blocked, Closed, FormatError, ResponseTooLarge, Timeout
 
 logger = getLogger(__package__)
 

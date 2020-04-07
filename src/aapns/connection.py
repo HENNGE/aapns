@@ -21,6 +21,8 @@ import h2.config
 import h2.connection
 import h2.settings
 
+from .errors import Blocked, Closed, FormatError, ResponseTooLarge, Timeout
+
 # Apple limits APN payload (data) to 4KB or 5KB, depending.
 # Request header is not subject to flow control in HTTP/2
 # Data is subject to framing and padding, but those are minor.
@@ -323,7 +325,7 @@ class Connection:
                     elif isinstance(event, h2.events.StreamEnded):
                         return Response.new(ch.header, ch.body)
                     elif len(ch.body) >= MAX_RESPONSE_SIZE:
-                        raise ResponseTooLarge()
+                        raise ResponseTooLarge(f"Larger than {MAX_RESPONSE_SIZE}")
             else:
                 raise Closed(self.outcome)
         finally:
@@ -357,26 +359,6 @@ class Connection:
             logger.exception("background write task died")
         finally:
             self.closing = self.closed = True
-
-
-class Blocked(Exception):
-    """This connection can't send more data at this point, can try later."""
-
-
-class Closed(Exception):
-    """This connection is now closed, try another."""
-
-
-class Timeout(Exception):
-    """The request deadline has passed."""
-
-
-class FormatError(Exception):
-    """Response was weird."""
-
-
-class ResponseTooLarge(Exception):
-    f"""Server response was larger than {MAX_RESPONSE_SIZE}."""
 
 
 @dataclass

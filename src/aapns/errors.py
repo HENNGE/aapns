@@ -5,6 +5,26 @@ class APNSError(Exception):
     pass
 
 
+class Blocked(APNSError):
+    """This connection can't send more data at this point, can try later."""
+
+
+class Closed(APNSError):
+    """This connection is now closed, try another."""
+
+
+class Timeout(APNSError):
+    """The request deadline has passed."""
+
+
+class FormatError(APNSError):
+    """Response was weird."""
+
+
+class ResponseTooLarge(APNSError):
+    """Server response was larger than allowed."""
+
+
 class Disconnected(APNSError):
     pass
 
