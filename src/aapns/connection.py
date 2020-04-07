@@ -1,5 +1,6 @@
+from __future__ import annotations
+
 import json
-import ssl
 from asyncio import (
     CancelledError,
     Event,
@@ -13,6 +14,7 @@ from contextlib import suppress
 from dataclasses import dataclass, field
 from logging import getLogger
 from math import inf
+from ssl import OP_NO_TLSv1, OP_NO_TLSv1_1, SSLContext, SSLError, create_default_context
 from time import time
 from typing import Dict, List, Optional
 from urllib.parse import urlparse
@@ -39,27 +41,34 @@ CONNECTION_WINDOW_SIZE = 2 ** 24
 logger = getLogger(__package__)
 
 
-@dataclass
-class Channel:
-    sid: int
-    fut: Optional[Future]
-    ev: List[h2.events.Event] = field(default_factory=list)
-    header: Optional[dict] = None
-    body: bytes = b""
-
-
+@dataclass(eq=False)
 class Connection:
-    # FIXME document connection termination states:
-    # * not closing: active connection
-    # * closing and not closed: graceful shutdown
-    # * closed: totally dead
-    # * fixme: __aexit__() finished
-    closed = closing = False
+    """Encapsulates a single HTTP/2 connection to the APN server
+
+    Connection states:
+    * new (not connected)
+    * starting
+    * active
+    * graceful shutdown (to do)
+    * closing
+    * closed
+    """
+
+    host: str
+    port: int
+    protocol: h2.connection.H2Connection
+    read_stream: Any
+    write_stream: Any
+    should_write: Event
+    channels: Dict[int, Channel] = field(default_factory=dict)
+    reader: Task = field(init=False)
+    writer: Task = field(init=False)
+    closed: bool = False
+    closing: bool = False
     outcome: Optional[str] = None
-    r = w = bgr = bgw = None
-    channels: Dict[int, Channel]
-    max_concurrent_streams = 100  # recommended in RFC7540#section-6.5.2
-    last_new_sid = last_sent_sid = -1  # client streams are odd
+    max_concurrent_streams: int = 100  # recommended in RFC7540#section-6.5.2
+    last_new_sid: int = -1
+    last_sent_sid: int = -1  # client streams are odd
 
     def __repr__(self):
         bits = [self.state, f"{self.host}:{self.port}"]
@@ -69,9 +78,8 @@ class Connection:
             bits.append(f"outcome:{self.outcome}")
         return "<Connection %s>" % " ".join(bits)
 
-    def __init__(self, origin: str, ssl=None):
-        """ Private. Use `await Connection.create(...) instead. """
-        self.channels = dict()
+    @classmethod
+    async def create(cls, origin: str, ssl: Optional[SSLContext] = None):
         url = urlparse(origin)
         assert url.scheme == "https"
         assert url.hostname
@@ -81,67 +89,67 @@ class Connection:
         assert not url.params
         assert not url.query
         assert not url.fragment
-        self.host = url.hostname
-        self.port = url.port or 443
-        self.ssl = ssl if ssl else create_ssl_context()
+        host = url.hostname
+        port = url.port or 443
 
-    @classmethod
-    async def create(cls, origin: str, ssl: Optional[ssl.SSLContext] = None):
-        self = cls(origin, ssl=ssl)
-        await self.__aenter__()
-        return self
+        ssl_context = ssl if ssl else create_ssl_context()
+        assert OP_NO_TLSv1 in ssl_context.options
+        assert OP_NO_TLSv1_1 in ssl_context.options
+        # https://bugs.python.org/issue40111 validate context h2 alpn
 
-    async def __aenter__(self):
-        assert ssl.OP_NO_TLSv1 in self.ssl.options
-        assert ssl.OP_NO_TLSv1_1 in self.ssl.options
-        # https://bugs.python.org/issue40111 validate h2 alpn
-
-        self.please_write = Event()
-        self.r, self.w = await open_connection(
-            self.host, self.port, ssl=self.ssl, ssl_handshake_timeout=5
-        )
-        info = self.w.get_extra_info("ssl_object")
-        assert info, "HTTP/2 server is required"
-        proto = info.selected_alpn_protocol()
-        assert proto == "h2", "Failed to negotiate HTTP/2"
-
-        self.conn = h2.connection.H2Connection(
+        protocol = h2.connection.H2Connection(
             h2.config.H2Configuration(client_side=True, header_encoding="utf-8")
         )
-
-        self.conn.local_settings = h2.settings.Settings(
+        protocol.local_settings = h2.settings.Settings(
             client=True,
             initial_values={
-                h2.settings.SettingCodes.ENABLE_PUSH: 0,
-                # FIXME Apple server settings:
+                # Apple server settings:
                 # HEADER_TABLE_SIZE 4096
                 # MAX_CONCURRENT_STREAMS 1000
                 # INITIAL_WINDOW_SIZE 65535
                 # MAX_FRAME_SIZE 16384
                 # MAX_HEADER_LIST_SIZE 8000
+                h2.settings.SettingCodes.ENABLE_PUSH: 0,
                 h2.settings.SettingCodes.MAX_CONCURRENT_STREAMS: 2 ** 20,
                 h2.settings.SettingCodes.MAX_HEADER_LIST_SIZE: 2 ** 16 - 1,
                 h2.settings.SettingCodes.INITIAL_WINDOW_SIZE: MAX_RESPONSE_SIZE,
             },
         )
 
-        self.conn.initiate_connection()
-        # APN response body is empty (ok) or small (error)
-        self.conn.increment_flow_control_window(CONNECTION_WINDOW_SIZE)
-        self.please_write.set()
+        protocol.initiate_connection()
+        protocol.increment_flow_control_window(CONNECTION_WINDOW_SIZE)
 
-        self.bgr = create_task(self.background_read(), name="bg-read")
-        self.bgw = create_task(self.background_write(), name="bg-write")
+        try:
+            read_stream, write_stream = await open_connection(
+                host, port, ssl=ssl_context, ssl_handshake_timeout=5
+            )
+            info = write_stream.get_extra_info("ssl_object")
+            # FIXME better exceptions
+            assert info, "HTTP/2 server is required"
+            proto = info.selected_alpn_protocol()
+            assert proto == "h2", "Failed to negotiate HTTP/2"
+        except AssertionError:
+            write_stream.close()
+            with suppress(SSLError):
+                await write_stream.wait_closed()
+            raise
+
+        should_write = Event()
+        should_write.set()
 
         # FIXME we could wait for settings frame from the server,
         # to tell us how much we can actually send, as initial window is small
-        return self
+        return cls(host, port, protocol, read_stream, write_stream, should_write)
+
+    def __post_init__(self):
+        self.reader = create_task(self.background_read(), name="bg-read")
+        self.writer = create_task(self.background_write(), name="bg-write")
 
     @property
     def state(self):
-        if not self.please_write:
+        if not self.should_write:
             return "new"
-        elif not self.bgw:
+        elif not self.writer:
             return "starting"
         elif not self.closing:
             return "active"
@@ -169,10 +177,10 @@ class Connection:
         return (
             self.closing
             or self.closed
-            or self.conn.outbound_flow_control_window <= REQUIRED_FREE_SPACE
+            or self.protocol.outbound_flow_control_window <= REQUIRED_FREE_SPACE
             # FIXME accidentally quadratic: .openxx iterates over all streams
             # could be kinda fixed by caching with clever invalidation...
-            or self.conn.open_outbound_streams >= self.max_concurrent_streams
+            or self.protocol.open_outbound_streams >= self.max_concurrent_streams
         )
 
     async def __aexit__(self, exc_type, exc, tb):
@@ -184,35 +192,35 @@ class Connection:
             self.outcome = "Closed"
         try:
             # FIXME distinguish between cancellation and context exception
-            if self.bgw:
-                self.bgw.cancel()
+            if self.writer:
+                self.writer.cancel()
                 with suppress(CancelledError):
-                    await self.bgw
+                    await self.writer
 
-            if self.bgr:
-                self.bgr.cancel()
+            if self.reader:
+                self.reader.cancel()
                 with suppress(CancelledError):
-                    await self.bgr
+                    await self.reader
 
             # at this point, we must release or cancel all pending requests
             for sid, ch in self.channels.items():
                 if ch.fut and not ch.fut.done():
                     ch.fut.set_exception(Closed(self.outcome))
 
-            self.w.close()
-            with suppress(ssl.SSLError):
-                await self.w.wait_closed()
+            self.write_stream.close()
+            with suppress(SSLError):
+                await self.write_stream.wait_closed()
         finally:
             self.closed = True
 
     async def background_read(self):
         try:
             while not self.closed:
-                data = await self.r.read(2 ** 16)
+                data = await self.read_stream.read(2 ** 16)
                 if not data:
                     break
 
-                for event in self.conn.receive_data(data):
+                for event in self.protocol.receive_data(data):
                     logger.debug("APN: %s", event)
                     sid = getattr(event, "stream_id", 0)
                     error = getattr(event, "error_code", None)
@@ -233,7 +241,7 @@ class Connection:
                                         event.additional_data.decode("utf-8")
                                     )["reason"]
                                 except Exception:
-                                    self.outcome = str(self.additional_data[:100])
+                                    self.outcome = str(event.additional_data[:100])
                             else:
                                 self.outcome = str(event.error_code)
                         logger.info("%s %s", self, self.outcome)
@@ -246,7 +254,7 @@ class Connection:
                         if isinstance(event, h2.events.DataReceived):
                             # Stream flow control is responsibility of the channel.
                             # Connection flow control is handled here.
-                            self.conn.increment_flow_control_window(
+                            self.protocol.increment_flow_control_window(
                                 event.flow_controlled_length
                             )
                         if ch:
@@ -256,7 +264,7 @@ class Connection:
 
                 # Somewhat inefficient: wake up background writer just in case
                 # it could be that we've received something that h2 needs to acknowledge
-                self.please_write.set()
+                self.should_write.set()
 
                 # FIXME notify users about possible change to `.blocked`
                 # FIXME selective:
@@ -288,7 +296,7 @@ class Connection:
             raise Blocked()
 
         try:
-            sid = self.conn.get_next_available_stream_id()
+            sid = self.protocol.get_next_available_stream_id()
         except h2.NoAvailableStreamIDError:
             self.closing = True
             if not self.outcome:
@@ -300,14 +308,14 @@ class Connection:
         self.last_new_sid = sid
 
         ch = self.channels[sid] = Channel(sid, None, [])
-        self.conn.send_headers(
+        self.protocol.send_headers(
             sid, req.header_with(self.host, self.port), end_stream=False
         )
         # FIXME don't we have to increment global flow control
         # also on reception of stream X data?
-        self.conn.increment_flow_control_window(MAX_RESPONSE_SIZE, stream_id=sid)
-        self.conn.send_data(sid, req.body, end_stream=True)
-        self.please_write.set()
+        self.protocol.increment_flow_control_window(MAX_RESPONSE_SIZE, stream_id=sid)
+        self.protocol.send_data(sid, req.body, end_stream=True)
+        self.should_write.set()
 
         try:
             while not self.closed:
@@ -343,14 +351,14 @@ class Connection:
                     if self.closed:
                         return
 
-                    if data := self.conn.data_to_send():
-                        self.w.write(data)
+                    if data := self.protocol.data_to_send():
+                        self.write_stream.write(data)
                         last_sid = self.last_new_sid
-                        await self.w.drain()
+                        await self.write_stream.drain()
                         self.last_sent_sid = last_sid
                     else:
-                        await self.please_write.wait()
-                        self.please_write.clear()
+                        await self.should_write.wait()
+                        self.should_write.clear()
 
         except ConnectionError as e:
             if not self.outcome:
@@ -359,6 +367,15 @@ class Connection:
             logger.exception("background write task died")
         finally:
             self.closing = self.closed = True
+
+
+@dataclass
+class Channel:
+    sid: int
+    fut: Optional[Future]
+    ev: List[h2.events.Event] = field(default_factory=list)
+    header: Optional[dict] = None
+    body: bytes = b""
 
 
 @dataclass
@@ -392,17 +409,6 @@ class Request:
         h = tuple((f":{k}", v) for k, v in pseudo.items()) + tuple(
             (header or {}).items()
         )
-        # aapns:master sends this header
-        #   [Host], Accept, Accept-Encoding, Apns-Priority, Apns-Push-Type, Content-Length, User-Agent
-        # this branch sends this header
-        #   [Host], Apns-Priority, Apns-Push-Type
-        #
-        # FIXME 1.
-        # Does APN require Content-Length header field?
-        # It's optional in HTTP/2... Does Apple need it?
-        #
-        # FIXME 2.
-        # Apns-Expiration should be derived from `deadline`
         return cls(h, json.dumps(data, ensure_ascii=False).encode("utf-8"), deadline)
 
 
@@ -427,8 +433,8 @@ class Response:
 
 
 def create_ssl_context():
-    context = ssl.create_default_context()
-    context.options |= ssl.OP_NO_TLSv1
-    context.options |= ssl.OP_NO_TLSv1_1
+    context = create_default_context()
+    context.options |= OP_NO_TLSv1
+    context.options |= OP_NO_TLSv1_1
     context.set_alpn_protocols(["h2"])
     return context

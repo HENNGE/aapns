@@ -50,5 +50,4 @@ async def create_client(
     if cafile:
         ssl_context.load_verify_locations(cafile=cafile)
     ssl_context.load_cert_chain(certfile=client_cert_path, keyfile=client_cert_path)
-    apns = APNS(server, await Pool.create(base_url, ssl=ssl_context))
-    return apns
+    return APNS(server, await Pool.create(base_url, ssl=ssl_context))
