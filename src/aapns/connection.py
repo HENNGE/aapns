@@ -45,6 +45,14 @@ class Connection:
 
     Use `Connection.create(...)` to make connections.
 
+    Example use:
+
+        conn = await Connection.create(...)
+        try:
+            await conn.post(request)
+        finally:
+            await conn.close()
+
     Connection states:
     * new (not connected)
     * starting
@@ -200,7 +208,7 @@ class Connection:
                     elif isinstance(event, h2.events.StreamEnded):
                         return Response.new(channel.header, channel.body)
                     elif isinstance(event, h2.events.StreamReset):
-                        raise StreamResetError()
+                        raise StreamReset()
                     elif len(channel.body) >= MAX_RESPONSE_SIZE:
                         raise ResponseTooLarge(f"Larger than {MAX_RESPONSE_SIZE}")
                 del channel.events[:]
