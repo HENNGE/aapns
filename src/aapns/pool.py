@@ -128,6 +128,16 @@ class Pool:
         bits.append(f"errors:{self.errors}")
         return "<Pool %s>" % " ".join(bits)
 
+    def resize(self, size: int):
+        """Resize the connection pool
+
+        Give the pool some time to grow/shrink to new `size` afterwards.
+        """
+        if size < 1:
+            raise ValueError("Connection pool size must be strictly positive")
+        self.size = size
+        self.maintenance_needed.set()
+
     @property
     def state(self):
         return "closed" if self.closed else "closing" if self.closing else "active"
@@ -147,12 +157,7 @@ class Pool:
         """Total count of pending requests."""
         return sum(c.pending for c in self.active | self.dying) + self.retrying
 
-    def resize(self, size):
-        assert size > 0
-        self.size = size
-        self.maintenance_needed.set()
-
-    def termination_hook(self, connection):
+    def termination_hook(self, connection: Connection):
         """
         A hook to terminate the pool if/when client certificate expires.
 
