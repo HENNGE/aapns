@@ -32,7 +32,7 @@ MAX_RESPONSE_SIZE = 2 ** 16
 # It's quite arbitrary, guided by:
 # * concurrent requests limit, server limit being 1000 today
 # * expected response size, see above
-CONNECTION_WINDOW_SIZE = 2 ** 24
+CONNECTION_WINDOW_SIZE = 1000 * MAX_RESPONSE_SIZE
 # Connection establishment safety time limits
 CONNECTION_TIMEOUT = 5
 TLS_TIMEOUT = 5
@@ -186,9 +186,6 @@ class Connection:
         self.protocol.send_headers(
             stream_id, request.header_with(self.host, self.port), end_stream=False
         )
-        self.protocol.increment_flow_control_window(
-            MAX_RESPONSE_SIZE, stream_id=stream_id
-        )
         self.protocol.send_data(stream_id, request.body, end_stream=True)
         self.should_write.set()
 
@@ -331,8 +328,8 @@ class Connection:
                         if isinstance(event, h2.events.DataReceived):
                             # Stream flow control is responsibility of the channel.
                             # Connection flow control is handled here.
-                            self.protocol.increment_flow_control_window(
-                                event.flow_controlled_length
+                            self.protocol.acknowledge_received_data(
+                                event.flow_controlled_length, stream_id
                             )
                         if channel:
                             channel.events.append(event)
