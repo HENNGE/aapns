@@ -214,7 +214,7 @@ class Pool:
 
     async def add_one_connection(self):
         try:
-            connection = await Connection.create(self.origin, ssl=self.ssl)
+            connection = await Connection.create(self.origin, ssl=self.ssl_context)
             self.active.add(connection)
             self.termination_hook(connection)
             return True
