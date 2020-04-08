@@ -27,7 +27,17 @@ logger = getLogger(__package__)
 
 @dataclass(eq=False)
 class Pool:
-    """Simple fixed-size connection pool with automatic replacement"""
+    """Simple fixed-size connection pool with automatic replacement
+
+    Example use:
+
+        pool = Pool.create(...)
+        try:
+            await pool.post(request)
+        finally:
+            await pool.close()
+
+    """
 
     origin: str
     size: int
@@ -43,24 +53,9 @@ class Pool:
     maintenance: asyncio.Task = field(init=False)
     maintenance_needed: asyncio.Event = field(default_factory=asyncio.Event)
 
-    def __repr__(self):
-        bits = [
-            self.state,
-            self.origin,
-            f"alive:{len(self.active)}",
-            f"dying:{len(self.dying)}",
-        ]
-        if self.state != "closed":
-            all = self.active | self.dying
-            bits.append(f"buffered:{sum(connection.buffered for connection in all)}")
-            bits.append(f"inflight:{sum(connection.inflight for connection in all)}")
-        bits.append(f"retrying:{self.retrying}")
-        bits.append(f"completed:{self.completed}")
-        bits.append(f"errors:{self.errors}")
-        return "<Pool %s>" % " ".join(bits)
-
     @classmethod
-    async def create(cls, origin: str, size=2, ssl=None):
+    async def create(cls, origin: str, size=2, ssl=None) -> Pool:
+        """Connect to `origin` and return a connection pool"""
         if size < 1:
             raise ValueError("Connection pool size must be strictly positive")
         ssl_context = ssl or create_ssl_context()
@@ -75,14 +70,82 @@ class Pool:
     def __post_init__(self):
         self.maintenance = create_task(self.maintain(), name="maintenance")
 
+    async def post(self, req: "Request") -> "Response":
+        """Post the `request` on a connection in this pool, with retries"""
+        with self.count_requests():
+            for delay in (10 ** i for i in count(-3, 0.5)):
+                if self.closing:
+                    raise Closed(self.outcome)
+
+                try:
+                    return await self.post_once(req)
+                except Blocked:
+                    pass
+
+                if self.closing:
+                    raise Closed(self.outcome)
+
+                if time() + delay > req.deadline:
+                    raise Timeout()
+
+                try:
+                    self.retrying += 1
+                    await sleep(delay)
+                finally:
+                    self.retrying -= 1
+
+            assert False, "unreachable"
+
+    async def close(self):
+        """Terminate the connection pool and free up the resources"""
+        self.closing = True
+        if not self.outcome:
+            self.outcome = "Closed"
+        try:
+            if self.maintenance:
+                self.maintenance.cancel()
+                with suppress(CancelledError):
+                    await self.maintenance
+
+            await gather(
+                *(connection.close() for connection in self.active | self.dying)
+            )
+        finally:
+            self.closed = True
+
+    def __repr__(self):
+        bits = [
+            self.state,
+            self.origin,
+            f"active:{len(self.active)}",
+            f"dying:{len(self.dying)}",
+        ]
+        if self.state != "closed":
+            bits.append(f"buffered:{self.buffered}")
+            bits.append(f"inflight:{self.inflight}")
+        bits.append(f"retrying:{self.retrying}")
+        bits.append(f"completed:{self.completed}")
+        bits.append(f"errors:{self.errors}")
+        return "<Pool %s>" % " ".join(bits)
+
     @property
     def state(self):
-        if not self.closing:
-            return "active"
-        elif not self.closed:
-            return "closing"
-        else:
-            return "closed"
+        return "closed" if self.closed else "closing" if self.closing else "active"
+
+    @property
+    def inflight(self):
+        """Count of the requests that were sent out and are awaiting server response."""
+        return sum(c.inflight for c in self.active | self.dying)
+
+    @property
+    def buffered(self):
+        """Count of the requests that we are still to send out."""
+        return sum(c.buffered for c in self.active | self.dying)
+
+    @property
+    def pending(self):
+        """Total count of pending requests."""
+        return sum(c.pending for c in self.active | self.dying) + self.retrying
 
     def resize(self, size):
         assert size > 0
@@ -144,47 +207,6 @@ class Pool:
             return True
         except Exception:
             logger.exception("Failed creating APN connection")
-
-    async def close(self):
-        self.closing = True
-        if not self.outcome:
-            self.outcome = "Closed"
-        try:
-            if self.maintenance:
-                self.maintenance.cancel()
-                with suppress(CancelledError):
-                    await self.maintenance
-
-            await gather(
-                *(connection.close() for connection in self.active | self.dying)
-            )
-        finally:
-            self.closed = True
-
-    async def post(self, req: "Request") -> "Response":
-        with self.count_requests():
-            for delay in (10 ** i for i in count(-3, 0.5)):
-                if self.closing:
-                    raise Closed(self.outcome)
-
-                try:
-                    return await self.post_once(req)
-                except Blocked:
-                    pass
-
-                if self.closing:
-                    raise Closed(self.outcome)
-
-                if time() + delay > req.deadline:
-                    raise Timeout()
-
-                try:
-                    self.retrying += 1
-                    await sleep(delay)
-                finally:
-                    self.retrying -= 1
-
-            assert False, "unreachable"
 
     @contextmanager
     def count_requests(self):

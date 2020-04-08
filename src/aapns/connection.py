@@ -79,7 +79,7 @@ class Connection:
     last_stream_id_sent: int = -1  # client streams are odd
 
     @classmethod
-    async def create(cls, origin: str, ssl: Optional[SSLContext] = None):
+    async def create(cls, origin: str, ssl: Optional[SSLContext] = None) -> Connection:
         """Connect to `origin` and return a Connection"""
         url = urlparse(origin)
         if (
