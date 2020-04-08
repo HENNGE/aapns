@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from asyncio import (
     CancelledError,
-    Event,
     Future,
     TimeoutError,
     create_task,
@@ -54,7 +54,7 @@ class Connection:
     * new (not connected)
     * starting
     * active
-    * graceful shutdown (to do)
+    * graceful shutdown (to do: https://github.com/python-hyper/hyper-h2/issues/1181)
     * closing
     * closed
     """
@@ -62,18 +62,18 @@ class Connection:
     host: str
     port: int
     protocol: h2.connection.H2Connection
-    read_stream: Any
-    write_stream: Any
-    should_write: Event
+    read_stream: asyncio.StreamReader
+    write_stream: asyncio.StreamWriter
+    should_write: asyncio.Event
     channels: Dict[int, Channel] = field(default_factory=dict)
-    reader: Task = field(init=False)
-    writer: Task = field(init=False)
-    closed: bool = False
+    reader: asyncio.Task = field(init=False)
+    writer: asyncio.Task = field(init=False)
     closing: bool = False
+    closed: bool = False
     outcome: Optional[str] = None
-    max_concurrent_streams: int = 100  # recommended in RFC7540#section-6.5.2
-    last_new_sid: int = -1
-    last_sent_sid: int = -1  # client streams are odd
+    max_concurrent_streams: int = 100  # initial per RFC7540#section-6.5.2
+    last_stream_id_got: int = -1
+    last_stream_id_sent: int = -1  # client streams are odd
 
     def __repr__(self):
         bits = [self.state, f"{self.host}:{self.port}"]
@@ -142,7 +142,7 @@ class Connection:
                 await write_stream.wait_closed()
             raise
 
-        should_write = Event()
+        should_write = asyncio.Event()
         should_write.set()
 
         # FIXME we could wait for settings frame from the server,
@@ -169,7 +169,7 @@ class Connection:
     @property
     def buffered(self):
         """ This metric shows how "slow" we are sending requests out. """
-        return (self.last_new_sid - self.last_sent_sid) // 2
+        return (self.last_stream_id_got - self.last_stream_id_sent) // 2
 
     @property
     def pending(self):
@@ -208,9 +208,9 @@ class Connection:
                     await self.reader
 
             # at this point, we must release or cancel all pending requests
-            for sid, ch in self.channels.items():
-                if ch.fut and not ch.fut.done():
-                    ch.fut.set_exception(Closed(self.outcome))
+            for stream_id, ch in self.channels.items():
+                if ch.future and not ch.future.done():
+                    ch.future.set_exception(Closed(self.outcome))
 
             self.write_stream.close()
             with suppress(SSLError):
@@ -227,9 +227,9 @@ class Connection:
 
                 for event in self.protocol.receive_data(data):
                     logger.debug("APN: %s", event)
-                    sid = getattr(event, "stream_id", 0)
+                    stream_id = getattr(event, "stream_id", 0)
                     error = getattr(event, "error_code", None)
-                    ch = self.channels.get(sid)
+                    ch = self.channels.get(stream_id)
 
                     if isinstance(event, h2.events.RemoteSettingsChanged):
                         m = event.changed_settings.get(
@@ -250,7 +250,7 @@ class Connection:
                             else:
                                 self.outcome = str(event.error_code)
                         logger.info("%s %s", self, self.outcome)
-                    elif not sid and error is not None:
+                    elif not stream_id and error is not None:
                         # FIXME break the connection,but give users a chance to complete
                         logger.warning("Bad error %s", event)
                         self.outcome = str(error)
@@ -263,9 +263,9 @@ class Connection:
                                 event.flow_controlled_length
                             )
                         if ch:
-                            ch.ev.append(event)
-                            if not ch.fut.done():
-                                ch.fut.set_result(None)
+                            ch.events.append(event)
+                            if not ch.future.done():
+                                ch.future.set_result(None)
 
                 # Somewhat inefficient: wake up background writer just in case
                 # it could be that we've received something that h2 needs to acknowledge
@@ -285,9 +285,9 @@ class Connection:
             logger.exception("background read task died")
         finally:
             self.closing = self.closed = True
-            for sid, ch in self.channels.items():
-                if ch.fut and not ch.fut.done():
-                    ch.fut.set_exception(Closed(self.outcome))
+            for stream_id, ch in self.channels.items():
+                if ch.future and not ch.future.done():
+                    ch.future.set_exception(Closed(self.outcome))
 
     async def post(self, req: "Request") -> "Response":
         assert len(req.body) <= MAX_NOTIFICATION_PAYLOAD_SIZE
@@ -301,36 +301,38 @@ class Connection:
             raise Blocked()
 
         try:
-            sid = self.protocol.get_next_available_stream_id()
+            stream_id = self.protocol.get_next_available_stream_id()
         except h2.exceptions.NoAvailableStreamIDError:
             self.closing = True
             if not self.outcome:
                 self.outcome = "Exhausted"
             raise Closed(self.outcome)
 
-        assert sid not in self.channels
+        assert stream_id not in self.channels
 
-        self.last_new_sid = sid
+        self.last_stream_id_got = stream_id
 
-        ch = self.channels[sid] = Channel(sid, None, [])
+        ch = self.channels[stream_id] = Channel()
         self.protocol.send_headers(
-            sid, req.header_with(self.host, self.port), end_stream=False
+            stream_id, req.header_with(self.host, self.port), end_stream=False
         )
         # FIXME don't we have to increment global flow control
         # also on reception of stream X data?
-        self.protocol.increment_flow_control_window(MAX_RESPONSE_SIZE, stream_id=sid)
-        self.protocol.send_data(sid, req.body, end_stream=True)
+        self.protocol.increment_flow_control_window(
+            MAX_RESPONSE_SIZE, stream_id=stream_id
+        )
+        self.protocol.send_data(stream_id, req.body, end_stream=True)
         self.should_write.set()
 
         try:
             while not self.closed:
-                ch.fut = Future()
+                ch.future = Future()
                 with suppress(TimeoutError):
-                    await wait_for(ch.fut, req.deadline - now)
+                    await wait_for(ch.future, req.deadline - now)
                 now = time()
                 if now > req.deadline:
                     raise Timeout()
-                for event in ch.ev:
+                for event in ch.events:
                     if isinstance(event, h2.events.ResponseReceived):
                         ch.header = dict(event.headers)
                     elif isinstance(event, h2.events.DataReceived):
@@ -339,13 +341,13 @@ class Connection:
                         return Response.new(ch.header, ch.body)
                     elif len(ch.body) >= MAX_RESPONSE_SIZE:
                         raise ResponseTooLarge(f"Larger than {MAX_RESPONSE_SIZE}")
-            else:
-                raise Closed(self.outcome)
+                del ch.events[:]
+            raise Closed(self.outcome)
         finally:
             # FIXME reset the stream, if:
             # * connection is still alive, and
             # * the stream didn't end yet
-            del self.channels[sid]
+            del self.channels[stream_id]
 
     async def background_write(self):
         try:
@@ -358,9 +360,9 @@ class Connection:
 
                     if data := self.protocol.data_to_send():
                         self.write_stream.write(data)
-                        last_sid = self.last_new_sid
+                        last_stream_id = self.last_stream_id_got
                         await self.write_stream.drain()
-                        self.last_sent_sid = last_sid
+                        self.last_stream_id_sent = last_stream_id
                     else:
                         await self.should_write.wait()
                         self.should_write.clear()
@@ -376,9 +378,8 @@ class Connection:
 
 @dataclass
 class Channel:
-    sid: int
-    fut: Optional[Future]
-    ev: List[h2.events.Event] = field(default_factory=list)
+    future: Optional[Future] = None
+    events: List[h2.events.Event] = field(default_factory=list)
     header: Optional[dict] = None
     body: bytes = b""
 
