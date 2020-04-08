@@ -182,7 +182,7 @@ class Connection:
 
         self.last_stream_id_got = stream_id
 
-        channel = self.channels[stream_id] = Channel()
+        self.channels[stream_id] = channel = Channel()
         self.protocol.send_headers(
             stream_id, request.header_with(self.host, self.port), end_stream=False
         )
@@ -199,7 +199,7 @@ class Connection:
                     await wait_for(channel.wakeup.wait(), request.deadline - now)
                 now = time()
                 if now > request.deadline:
-                    raise Timeout()
+                    raise Timeout("Request timed out")
                 for event in channel.events:
                     if isinstance(event, h2.events.ResponseReceived):
                         channel.header = dict(event.headers)
@@ -216,7 +216,10 @@ class Connection:
         finally:
             # FIXME reset the stream, if:
             # * connection is still alive, and
-            # * the stream didn't end yet
+            # * this stream did not end yet
+            # Must be very careful not to break the connection
+            # self.protocol.reset_stream(stream_id, 0)
+            # self.should_write.set()
             del self.channels[stream_id]
 
     async def close(self):
