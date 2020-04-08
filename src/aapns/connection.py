@@ -2,14 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from asyncio import (
-    CancelledError,
-    Future,
-    TimeoutError,
-    create_task,
-    open_connection,
-    wait_for,
-)
+from asyncio import CancelledError, TimeoutError, create_task, open_connection, wait_for
 from contextlib import suppress
 from dataclasses import dataclass, field
 from logging import getLogger
@@ -48,7 +41,9 @@ logger = getLogger(__package__)
 
 @dataclass(eq=False)
 class Connection:
-    """Encapsulates a single HTTP/2 connection to the APN server
+    """Encapsulates a single HTTP/2 connection to the APN server.
+
+    Use `Connection.create(...)` to make connections.
 
     Connection states:
     * new (not connected)
@@ -74,14 +69,6 @@ class Connection:
     max_concurrent_streams: int = 100  # initial per RFC7540#section-6.5.2
     last_stream_id_got: int = -1
     last_stream_id_sent: int = -1  # client streams are odd
-
-    def __remove_me_repr__(self):
-        bits = [self.state, f"{self.host}:{self.port}"]
-        if self.state != "closed":
-            bits.extend([f"buffered:{self.buffered}", f"inflight:{self.inflight}"])
-        else:
-            bits.append(f"outcome:{self.outcome}")
-        return "<Connection %s>" % " ".join(bits)
 
     @classmethod
     async def create(cls, origin: str, ssl: Optional[SSLContext] = None):
@@ -154,43 +141,63 @@ class Connection:
         self.reader = create_task(self.background_read(), name="bg-read")
         self.writer = create_task(self.background_write(), name="bg-write")
 
-    @property
-    def state(self):
-        if not self.should_write:
-            return "new"
-        elif not self.writer:
-            return "starting"
-        elif not self.closing:
-            return "active"
-        elif not self.closed:
-            return "closing"
-        else:
-            return "closed"
+    async def post(self, req: "Request") -> "Response":
+        assert len(req.body) <= MAX_NOTIFICATION_PAYLOAD_SIZE
 
-    @property
-    def buffered(self):
-        """ This metric shows how "slow" we are sending requests out. """
-        return (self.last_stream_id_got - self.last_stream_id_sent) // 2
+        now = time()
+        if now > req.deadline:
+            raise Timeout("Request timed out")
+        if self.closing or self.closed:
+            raise Closed(self.outcome)
+        if self.blocked:
+            raise Blocked()
 
-    @property
-    def pending(self):
-        """ This metric shows how "slow" the server is to respond. """
-        return len(self.channels)
+        try:
+            stream_id = self.protocol.get_next_available_stream_id()
+        except h2.exceptions.NoAvailableStreamIDError:
+            self.closing = True
+            if not self.outcome:
+                self.outcome = "Exhausted"
+            raise Closed(self.outcome)
 
-    @property
-    def inflight(self):
-        return self.pending - self.buffered
+        assert stream_id not in self.channels
 
-    @property
-    def blocked(self):
-        return (
-            self.closing
-            or self.closed
-            or self.protocol.outbound_flow_control_window <= REQUIRED_FREE_SPACE
-            # FIXME accidentally quadratic: .openxx iterates over all streams
-            # could be kinda fixed by caching with clever invalidation...
-            or self.protocol.open_outbound_streams >= self.max_concurrent_streams
+        self.last_stream_id_got = stream_id
+
+        ch = self.channels[stream_id] = Channel()
+        self.protocol.send_headers(
+            stream_id, req.header_with(self.host, self.port), end_stream=False
         )
+        self.protocol.increment_flow_control_window(
+            MAX_RESPONSE_SIZE, stream_id=stream_id
+        )
+        self.protocol.send_data(stream_id, req.body, end_stream=True)
+        self.should_write.set()
+
+        try:
+            while not self.closed:
+                ch.wakeup.clear()
+                with suppress(TimeoutError):
+                    await wait_for(ch.wakeup.wait(), req.deadline - now)
+                now = time()
+                if now > req.deadline:
+                    raise Timeout()
+                for event in ch.events:
+                    if isinstance(event, h2.events.ResponseReceived):
+                        ch.header = dict(event.headers)
+                    elif isinstance(event, h2.events.DataReceived):
+                        ch.body += event.data
+                    elif isinstance(event, h2.events.StreamEnded):
+                        return Response.new(ch.header, ch.body)
+                    elif len(ch.body) >= MAX_RESPONSE_SIZE:
+                        raise ResponseTooLarge(f"Larger than {MAX_RESPONSE_SIZE}")
+                del ch.events[:]
+            raise Closed(self.outcome)
+        finally:
+            # FIXME reset the stream, if:
+            # * connection is still alive, and
+            # * the stream didn't end yet
+            del self.channels[stream_id]
 
     async def close(self):
         self.closing = True
@@ -219,6 +226,45 @@ class Connection:
                 await self.write_stream.wait_closed()
         finally:
             self.closed = True
+
+    @property
+    def state(self):
+        return (
+            "closed"
+            if self.closed
+            else "closing"
+            if self.closing
+            else "active"
+            if self.writer
+            else "starting"
+            if self.should_write
+            else "new"
+        )
+
+    @property
+    def buffered(self):
+        """ This metric shows how "slow" we are sending requests out. """
+        return (self.last_stream_id_got - self.last_stream_id_sent) // 2
+
+    @property
+    def pending(self):
+        """ This metric shows how "slow" the server is to respond. """
+        return len(self.channels)
+
+    @property
+    def inflight(self):
+        return self.pending - self.buffered
+
+    @property
+    def blocked(self):
+        return (
+            self.closing
+            or self.closed
+            or self.protocol.outbound_flow_control_window <= REQUIRED_FREE_SPACE
+            # FIXME accidentally quadratic: .openxx iterates over all streams
+            # could be kinda fixed by caching with clever invalidation...
+            or self.protocol.open_outbound_streams >= self.max_concurrent_streams
+        )
 
     async def background_read(self):
         try:
@@ -285,64 +331,6 @@ class Connection:
             self.closing = self.closed = True
             for stream_id, ch in self.channels.items():
                 ch.wakeup.set()
-
-    async def post(self, req: "Request") -> "Response":
-        assert len(req.body) <= MAX_NOTIFICATION_PAYLOAD_SIZE
-
-        now = time()
-        if now > req.deadline:
-            raise Timeout("Request timed out")
-        if self.closing or self.closed:
-            raise Closed(self.outcome)
-        if self.blocked:
-            raise Blocked()
-
-        try:
-            stream_id = self.protocol.get_next_available_stream_id()
-        except h2.exceptions.NoAvailableStreamIDError:
-            self.closing = True
-            if not self.outcome:
-                self.outcome = "Exhausted"
-            raise Closed(self.outcome)
-
-        assert stream_id not in self.channels
-
-        self.last_stream_id_got = stream_id
-
-        ch = self.channels[stream_id] = Channel()
-        self.protocol.send_headers(
-            stream_id, req.header_with(self.host, self.port), end_stream=False
-        )
-        self.protocol.increment_flow_control_window(
-            MAX_RESPONSE_SIZE, stream_id=stream_id
-        )
-        self.protocol.send_data(stream_id, req.body, end_stream=True)
-        self.should_write.set()
-
-        try:
-            while not self.closed:
-                ch.wakeup.clear()
-                with suppress(TimeoutError):
-                    await wait_for(ch.wakeup.wait(), req.deadline - now)
-                now = time()
-                if now > req.deadline:
-                    raise Timeout()
-                for event in ch.events:
-                    if isinstance(event, h2.events.ResponseReceived):
-                        ch.header = dict(event.headers)
-                    elif isinstance(event, h2.events.DataReceived):
-                        ch.body += event.data
-                    elif isinstance(event, h2.events.StreamEnded):
-                        return Response.new(ch.header, ch.body)
-                    elif len(ch.body) >= MAX_RESPONSE_SIZE:
-                        raise ResponseTooLarge(f"Larger than {MAX_RESPONSE_SIZE}")
-                del ch.events[:]
-            raise Closed(self.outcome)
-        finally:
-            # FIXME reset the stream, if:
-            # * connection is still alive, and
-            # * the stream didn't end yet
-            del self.channels[stream_id]
 
     async def background_write(self):
         try:
