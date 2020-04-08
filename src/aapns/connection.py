@@ -18,7 +18,7 @@ import h2.events
 import h2.exceptions
 import h2.settings
 
-from .errors import Blocked, Closed, FormatError, ResponseTooLarge, Timeout
+from .errors import Blocked, Closed, FormatError, ResponseTooLarge, StreamReset, Timeout
 
 # Apple limits APN payload (data) to 4KB or 5KB, depending.
 # Request header is not subject to flow control in HTTP/2
@@ -149,12 +149,13 @@ class Connection:
         self.reader = create_task(self.background_read(), name="bg-read")
         self.writer = create_task(self.background_write(), name="bg-write")
 
-    async def post(self, req: "Request") -> "Response":
-        if len(req.body) > MAX_NOTIFICATION_PAYLOAD_SIZE:
+    async def post(self, request: "Request") -> "Response":
+        """Post the `request` on the connection"""
+        if len(request.body) > MAX_NOTIFICATION_PAYLOAD_SIZE:
             raise ValueError("Request body is too large")
 
         now = time()
-        if now > req.deadline:
+        if now > request.deadline:
             raise Timeout("Request timed out")
         if self.closing or self.closed:
             raise Closed(self.outcome)
@@ -173,34 +174,36 @@ class Connection:
 
         self.last_stream_id_got = stream_id
 
-        ch = self.channels[stream_id] = Channel()
+        channel = self.channels[stream_id] = Channel()
         self.protocol.send_headers(
-            stream_id, req.header_with(self.host, self.port), end_stream=False
+            stream_id, request.header_with(self.host, self.port), end_stream=False
         )
         self.protocol.increment_flow_control_window(
             MAX_RESPONSE_SIZE, stream_id=stream_id
         )
-        self.protocol.send_data(stream_id, req.body, end_stream=True)
+        self.protocol.send_data(stream_id, request.body, end_stream=True)
         self.should_write.set()
 
         try:
             while not self.closed:
-                ch.wakeup.clear()
+                channel.wakeup.clear()
                 with suppress(TimeoutError):
-                    await wait_for(ch.wakeup.wait(), req.deadline - now)
+                    await wait_for(channel.wakeup.wait(), request.deadline - now)
                 now = time()
-                if now > req.deadline:
+                if now > request.deadline:
                     raise Timeout()
-                for event in ch.events:
+                for event in channel.events:
                     if isinstance(event, h2.events.ResponseReceived):
-                        ch.header = dict(event.headers)
+                        channel.header = dict(event.headers)
                     elif isinstance(event, h2.events.DataReceived):
-                        ch.body += event.data
+                        channel.body += event.data
                     elif isinstance(event, h2.events.StreamEnded):
-                        return Response.new(ch.header, ch.body)
-                    elif len(ch.body) >= MAX_RESPONSE_SIZE:
+                        return Response.new(channel.header, channel.body)
+                    elif isinstance(event, h2.events.StreamReset):
+                        raise StreamResetError()
+                    elif len(channel.body) >= MAX_RESPONSE_SIZE:
                         raise ResponseTooLarge(f"Larger than {MAX_RESPONSE_SIZE}")
-                del ch.events[:]
+                del channel.events[:]
             raise Closed(self.outcome)
         finally:
             # FIXME reset the stream, if:
@@ -209,6 +212,7 @@ class Connection:
             del self.channels[stream_id]
 
     async def close(self):
+        """Terminate the connection and free up the resources"""
         self.closing = True
         if not self.outcome:
             self.outcome = "Closed"
@@ -227,8 +231,8 @@ class Connection:
             self.closed = True
 
             # at this point, we must release or cancel all pending requests
-            for stream_id, ch in self.channels.items():
-                ch.wakeup.set()
+            for channel in self.channels.values():
+                channel.wakeup.set()
 
             self.write_stream.close()
             with suppress(SSLError, ConnectionError):
@@ -286,7 +290,7 @@ class Connection:
                     logger.debug("APN: %s", event)
                     stream_id = getattr(event, "stream_id", 0)
                     error = getattr(event, "error_code", None)
-                    ch = self.channels.get(stream_id)
+                    channel = self.channels.get(stream_id)
 
                     if isinstance(event, h2.events.RemoteSettingsChanged):
                         m = event.changed_settings.get(
@@ -317,9 +321,9 @@ class Connection:
                             self.protocol.increment_flow_control_window(
                                 event.flow_controlled_length
                             )
-                        if ch:
-                            ch.events.append(event)
-                            ch.wakeup.set()
+                        if channel:
+                            channel.events.append(event)
+                            channel.wakeup.set()
 
                 # Somewhat inefficient: wake up background writer just in case
                 # it could be that we've received something that h2 needs to acknowledge
@@ -338,8 +342,8 @@ class Connection:
             logger.exception("background read task died")
         finally:
             self.closing = self.closed = True
-            for stream_id, ch in self.channels.items():
-                ch.wakeup.set()
+            for channel in self.channels.values():
+                channel.wakeup.set()
 
     async def background_write(self):
         try:

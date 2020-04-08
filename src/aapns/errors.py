@@ -25,11 +25,7 @@ class ResponseTooLarge(APNSError):
     """Server response was larger than allowed."""
 
 
-class Disconnected(APNSError):
-    pass
-
-
-class StreamResetError(APNSError):
+class StreamReset(APNSError):
     pass
 
 

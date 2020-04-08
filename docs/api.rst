@@ -100,25 +100,35 @@ API Reference
 
     Base class for all errors raised by aapns itself.
 
-.. py:exception:: Disconnected
+.. py:exception:: Blocked
 
-    Error raised by :py:meth:`aapns.api.APNS.send_notification` if the
-    connection was lost and automatic reconnection is disabled or the reconnect
-    failed.
+    This connection cannot temporarily send more requests.
 
-.. py:exception:: StreamResetError
+.. py:exception:: Closed
+
+    This connection was closed, the condition is permanent.
+
+.. py:exception:: Timeout
+
+    This request has timed out or would time out.
+
+.. py:exception:: FormatError
+
+    The error response could not be parsed.
+
+.. py:exception:: ResponseTooLarge
+
+    Server sent abnormally large respinse.
+
+.. py:exception:: StreamReset
 
     Error raised if the HTTP2 stream used to send a notification was reset by APNS.
-
-.. py:exception:: UnkownResponseError
-
-    Error used when there was an unknown error with the notification.
 
 .. py:exception:: ResponseError
 
     Base class for response errors when sending notifications.
 
-    See below for concrete instances.
+    See below for concrete instance.
 
     .. py:attribute:: reason
 
@@ -156,6 +166,7 @@ API Reference
 .. py:exception:: InternalServerError
 .. py:exception:: ServiceUnavailable
 .. py:exception:: Shutdown
+.. py:exception:: UnkownResponseError
 
 
 ``aapns.models``
