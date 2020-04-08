@@ -237,9 +237,6 @@ class Pool:
         # * but keep load for few last connections lighter
         #   to prevent all connections expiring at once
         # * ideally track connection backlog
-
-        # FIXME handle connection getting closed
-        # FIXME handle connection replacement
         active = list(self.active)
         shuffle(active)
         for connection in active:
