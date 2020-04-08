@@ -153,6 +153,14 @@ class Pool:
         self.maintenance_needed.set()
 
     def termination_hook(self, connection):
+        """
+        A hook to terminate the pool if/when client certificate expires.
+
+        If Apple is not happy with our client certificate, it will close individual
+        connections with a JSON blob with a specific message. All connections in the
+        pool share same ssl context, and thus same client certificate. If one
+        connection is closed so, then the entire pool is done for.
+        """
         if not self.outcome and connection.outcome == "BadCertificateEnvironment":
             self.closing = True
             self.outcome = connection.outcome
