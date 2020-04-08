@@ -2,7 +2,7 @@
 name = "aapns"
 version = "20.4"
 description = "Asynchronous Apple Push Notification Service Client"
-authors = ["Jonas Obrist <jonas.obrist@hennge.com>"]
+authors = ["Jonas Obrist <jonas.obrist@hennge.com>", "Dima Tisnek <dimaqq@gmail.com>"]
 license = "Apache-2.0"
 repository = "https://github.com/hennge/aapns"
 classifiers = [
