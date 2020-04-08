@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+import asyncio
+import ssl
 from asyncio import (
     CancelledError,
     Event,
@@ -8,6 +12,7 @@ from asyncio import (
     wait_for,
 )
 from contextlib import contextmanager, suppress
+from dataclasses import dataclass, field
 from itertools import count
 from logging import getLogger
 from random import shuffle
@@ -20,24 +25,33 @@ from .errors import Blocked, Closed, FormatError, ResponseTooLarge, Timeout
 logger = getLogger(__package__)
 
 
+@dataclass(eq=False)
 class Pool:
-    """Super-silly, fixed-size connection pool"""
+    """Simple fixed-size connection pool with automatic replacement"""
 
-    started = closing = closed = False
-    origin = None
-    errors = retrying = completed = 0
+    origin: str
+    size: int
+    ssl_context: ssl.SSLContext
+    active: Set[Connection]
+    dying: Set[Connection] = field(default_factory=set)
+    closing: bool = False
+    closed: bool = False
+    errors: int = 0
+    retrying: int = 0
+    completed: int = 0
     outcome: Optional[str] = None
-    maintenance = None
+    maintenance: asyncio.Task = field(init=False)
+    maintenance_needed: asyncio.Event = field(default_factory=asyncio.Event)
 
     def __repr__(self):
         bits = [
             self.state,
             self.origin,
-            f"alive:{len(self.conn)}",
+            f"alive:{len(self.active)}",
             f"dying:{len(self.dying)}",
         ]
         if self.state != "closed":
-            all = self.conn | self.dying
+            all = self.active | self.dying
             bits.append(f"buffered:{sum(c.buffered for c in all)}")
             bits.append(f"inflight:{sum(c.inflight for c in all)}")
         bits.append(f"retrying:{self.retrying}")
@@ -47,33 +61,23 @@ class Pool:
 
     @classmethod
     async def create(cls, origin: str, size=2, ssl=None):
-        self = cls(origin, size, ssl)
-        await self.__aenter__()
-        return self
+        if size < 1:
+            raise ValueError("Connection pool size must be strictly positive")
+        ssl_context = ssl or create_ssl_context()
+        connections = set(
+            await gather(
+                *(Connection.create(origin, ssl=ssl_context) for i in range(size))
+            )
+        )
+        # FIXME run the hook / ensure no connection is dead
+        return cls(origin, size, ssl_context, connections)
 
-    def __init__(self, origin: str, size=2, ssl=None):
-        """ Private, use `await Pool.create(...) instead. """
-        self.origin = origin
-        self.conn: Set[Connection] = set()
-        self.dying: Set[Connection] = set()
-        self.ssl = ssl if ssl else create_ssl_context()
-        assert size > 0
-        self.size = size
-        self._size_event = Event()
-
-    async def __aenter__(self):
-        await gather(*(self.add_one_connection() for i in range(self.size)))
+    def __post_init__(self):
         self.maintenance = create_task(self.maintain(), name="maintenance")
-        self.started = True
-        return self
 
     @property
     def state(self):
-        if not self.maintenance:
-            return "new"
-        elif not self.started:
-            return "starting"
-        elif not self.closing:
+        if not self.closing:
             return "active"
         elif not self.closed:
             return "closing"
@@ -83,7 +87,7 @@ class Pool:
     def resize(self, size):
         assert size > 0
         self.size = size
-        self._size_evet.set()
+        self.maintenance_needed.set()
 
     def cert_hook(self, c):
         if not self.outcome and c.outcome == "BadCertificateEnvironment":
@@ -95,14 +99,14 @@ class Pool:
             if self.closing or self.closed:
                 return
 
-            for c in list(self.conn):
+            for c in list(self.active):
                 if c.closing:
-                    self.conn.remove(c)
+                    self.active.remove(c)
                     self.dying.add(c)
                     self.cert_hook(c)
 
-            while len(self.conn) > self.size:
-                c = self.conn.pop()
+            while len(self.active) > self.size:
+                c = self.active.pop()
                 c.closing = True
                 self.dying.add(c)
                 self.cert_hook(c)
@@ -114,13 +118,13 @@ class Pool:
                 elif not c.channels:
                     self.dying.remove(c)
                     try:
-                        await c.__aexit__(None, None, None)
+                        await c.close()
                     finally:
                         self.cert_hook(c)
                 if self.closing or self.closed:
                     return
 
-            while len(self.conn) < self.size:
+            while len(self.active) < self.size:
                 if not await self.add_one_connection():
                     break
                 if self.closing or self.closed:
@@ -129,20 +133,17 @@ class Pool:
             # FIXME wait for a trigger:
             # * some connection state has changed
             with suppress(TimeoutError):
-                await wait_for(self._size_event.wait(), timeout=1)
-            self._size_event.clear()
+                await wait_for(self.maintenance_needed.wait(), timeout=1)
+            self.maintenance_needed.clear()
 
     async def add_one_connection(self):
         try:
             c = await Connection.create(self.origin, ssl=self.ssl)
-            self.conn.add(c)
+            self.active.add(c)
             self.cert_hook(c)
             return True
         except Exception:
             logger.exception("Failed creating APN connection")
-
-    async def __aexit__(self, exc_type, exc, tb):
-        await self.close()
 
     async def close(self):
         self.closing = True
@@ -154,7 +155,7 @@ class Pool:
                 with suppress(CancelledError):
                     await self.maintenance
 
-            await gather(*(c.close() for c in self.conn | self.dying))
+            await gather(*(c.close() for c in self.active | self.dying))
         finally:
             self.closed = True
 
@@ -202,7 +203,7 @@ class Pool:
 
         # FIXME handle connection getting closed
         # FIXME handle connection replacement
-        conns = list(self.conn)
+        conns = list(self.active)
         shuffle(conns)
         for c in conns:
             if self.closing:
