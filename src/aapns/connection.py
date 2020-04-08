@@ -205,12 +205,12 @@ class Connection:
                         channel.header = dict(event.headers)
                     elif isinstance(event, h2.events.DataReceived):
                         channel.body += event.data
+                        if len(channel.body) >= MAX_RESPONSE_SIZE:
+                            raise ResponseTooLarge(f"Larger than {MAX_RESPONSE_SIZE}")
                     elif isinstance(event, h2.events.StreamEnded):
                         return Response.new(channel.header, channel.body)
                     elif isinstance(event, h2.events.StreamReset):
                         raise StreamReset()
-                    elif len(channel.body) >= MAX_RESPONSE_SIZE:
-                        raise ResponseTooLarge(f"Larger than {MAX_RESPONSE_SIZE}")
                 del channel.events[:]
             raise Closed(self.outcome)
         finally:
@@ -263,21 +263,23 @@ class Connection:
         )
 
     @property
+    def inflight(self):
+        """Count of the requests that were sent out and are awaiting server response."""
+        return self.pending - self.buffered
+
+    @property
     def buffered(self):
-        """ This metric shows how "slow" we are sending requests out. """
+        """Count of the requests that we are still to send out."""
         return (self.last_stream_id_got - self.last_stream_id_sent) // 2
 
     @property
     def pending(self):
-        """ This metric shows how "slow" the server is to respond. """
+        """Total count of pending requests."""
         return len(self.channels)
 
     @property
-    def inflight(self):
-        return self.pending - self.buffered
-
-    @property
     def blocked(self):
+        """Is this connection unable to process more requests, either for now or permanently?"""
         return (
             self.closing
             or self.closed
@@ -444,6 +446,7 @@ class Response:
 
 
 def create_ssl_context():
+    """A basic SSL context suitable for HTTP/2 and APN."""
     context = create_default_context()
     context.options |= OP_NO_TLSv1
     context.options |= OP_NO_TLSv1_1
