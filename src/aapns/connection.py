@@ -64,7 +64,7 @@ class Connection:
     protocol: h2.connection.H2Connection
     read_stream: asyncio.StreamReader
     write_stream: asyncio.StreamWriter
-    should_write: asyncio.Event
+    should_write: asyncio.Event = field(init=False)
     channels: Dict[int, Channel] = field(default_factory=dict)
     reader: asyncio.Task = field(init=False)
     writer: asyncio.Task = field(init=False)
@@ -75,7 +75,7 @@ class Connection:
     last_stream_id_got: int = -1
     last_stream_id_sent: int = -1  # client streams are odd
 
-    def __repr__(self):
+    def __remove_me_repr__(self):
         bits = [self.state, f"{self.host}:{self.port}"]
         if self.state != "closed":
             bits.extend([f"buffered:{self.buffered}", f"inflight:{self.inflight}"])
@@ -85,6 +85,7 @@ class Connection:
 
     @classmethod
     async def create(cls, origin: str, ssl: Optional[SSLContext] = None):
+        """Connect to `origin` and return a Connection"""
         url = urlparse(origin)
         assert url.scheme == "https"
         assert url.hostname
@@ -138,18 +139,17 @@ class Connection:
             assert proto == "h2", "Failed to negotiate HTTP/2"
         except AssertionError:
             write_stream.close()
-            with suppress(SSLError):
+            with suppress(SSLError, ConnectionError):
                 await write_stream.wait_closed()
             raise
 
-        should_write = asyncio.Event()
-        should_write.set()
-
         # FIXME we could wait for settings frame from the server,
         # to tell us how much we can actually send, as initial window is small
-        return cls(host, port, protocol, read_stream, write_stream, should_write)
+        return cls(host, port, protocol, read_stream, write_stream)
 
     def __post_init__(self):
+        self.should_write = asyncio.Event()
+        self.should_write.set()
         self.reader = create_task(self.background_read(), name="bg-read")
         self.writer = create_task(self.background_write(), name="bg-write")
 
@@ -207,13 +207,14 @@ class Connection:
                 with suppress(CancelledError):
                     await self.reader
 
+            self.closed = True
+
             # at this point, we must release or cancel all pending requests
             for stream_id, ch in self.channels.items():
-                if ch.future and not ch.future.done():
-                    ch.future.set_exception(Closed(self.outcome))
+                ch.wakeup.set()
 
             self.write_stream.close()
-            with suppress(SSLError):
+            with suppress(SSLError, ConnectionError):
                 await self.write_stream.wait_closed()
         finally:
             self.closed = True
@@ -239,6 +240,7 @@ class Connection:
                             self.max_concurrent_streams = m.new_value
                     elif isinstance(event, h2.events.ConnectionTerminated):
                         self.closing = True
+                        logger.error("FIXME %r", event.additional_data)
                         if not self.outcome:
                             if event.additional_data:
                                 try:
@@ -249,7 +251,7 @@ class Connection:
                                     self.outcome = str(event.additional_data[:100])
                             else:
                                 self.outcome = str(event.error_code)
-                        logger.info("%s %s", self, self.outcome)
+                        logger.info("Closing with %s", self.outcome)
                     elif not stream_id and error is not None:
                         # FIXME break the connection,but give users a chance to complete
                         logger.warning("Bad error %s", event)
@@ -264,8 +266,7 @@ class Connection:
                             )
                         if ch:
                             ch.events.append(event)
-                            if not ch.future.done():
-                                ch.future.set_result(None)
+                            ch.wakeup.set()
 
                 # Somewhat inefficient: wake up background writer just in case
                 # it could be that we've received something that h2 needs to acknowledge
@@ -286,8 +287,7 @@ class Connection:
         finally:
             self.closing = self.closed = True
             for stream_id, ch in self.channels.items():
-                if ch.future and not ch.future.done():
-                    ch.future.set_exception(Closed(self.outcome))
+                ch.wakeup.set()
 
     async def post(self, req: "Request") -> "Response":
         assert len(req.body) <= MAX_NOTIFICATION_PAYLOAD_SIZE
@@ -325,10 +325,11 @@ class Connection:
         self.should_write.set()
 
         try:
+            # FIXME termination thing...
             while not self.closed:
-                ch.future = Future()
+                ch.wakeup.clear()
                 with suppress(TimeoutError):
-                    await wait_for(ch.future, req.deadline - now)
+                    await wait_for(ch.wakeup.wait(), req.deadline - now)
                 now = time()
                 if now > req.deadline:
                     raise Timeout()
@@ -367,7 +368,7 @@ class Connection:
                         await self.should_write.wait()
                         self.should_write.clear()
 
-        except ConnectionError as e:
+        except (SSLError, ConnectionError) as e:
             if not self.outcome:
                 self.outcome = str(e)
         except Exception:
@@ -378,7 +379,7 @@ class Connection:
 
 @dataclass
 class Channel:
-    future: Optional[Future] = None
+    wakeup: asyncio.Event = field(default_factory=asyncio.Event)
     events: List[h2.events.Event] = field(default_factory=list)
     header: Optional[dict] = None
     body: bytes = b""

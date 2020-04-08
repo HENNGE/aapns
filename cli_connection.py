@@ -34,10 +34,16 @@ async def send_several(ssl_context, base_url, requests):
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
+    argv = sys.argv[1:]
+
+    if "--verbose" in argv:
+        argv.remove("--verbose")
+        logging.basicConfig(level=logging.DEBUG)
+    else:
+        logging.basicConfig(level=logging.INFO)
+
     ssl_context = create_ssl_context()
 
-    argv = sys.argv[1:]
     if "--prod" in argv:
         argv.remove("--prod")
         host = "api.push.apple.com"
