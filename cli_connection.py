@@ -2,6 +2,8 @@ import asyncio
 import logging
 import sys
 
+import click
+
 from aapns.connection import Connection, Request, create_ssl_context
 
 USAGE = (
@@ -11,84 +13,64 @@ USAGE = (
 
 async def send_several(ssl_context, base_url, requests):
     c = await Connection.create(base_url, ssl=ssl_context)
+
+    async def post(r):
+        try:
+            logging.info("%s", r)
+            logging.info("%s", await c.post(r))
+        except Exception as rv:
+            logging.info("Failed with %r", rv)
+
     try:
         tasks = []
         for r in requests:
             logging.info("Sleeping a bit")
             await asyncio.sleep(1)
-
-            async def post(r):
-                try:
-                    logging.info("%s", r)
-                    logging.info("%s", await c.post(r))
-                except Exception as rv:
-                    logging.info("Failed with %r", rv)
-
-            # FIXME 2. Optional header fields
-            # Apns-Id, Apns-Expiration, Apns-Topic, Apns-Collapse-Id
             tasks.append(asyncio.create_task(post(r)))
         await asyncio.gather(*tasks)
     finally:
         await c.close()
 
 
-
-if __name__ == "__main__":
-    argv = sys.argv[1:]
-
-    if "--verbose" in argv:
-        argv.remove("--verbose")
-        logging.basicConfig(level=logging.DEBUG)
-    else:
-        logging.basicConfig(level=logging.INFO)
+@click.command()
+@click.option("--verbose", is_flag=True, default=False)
+@click.option("--local", is_flag=True, default=False)
+@click.option("--sandbox", is_flag=True, default=False)
+@click.option("--prod", is_flag=True, default=False)
+@click.option("--alt-port", is_flag=True, default=False)
+@click.option("--localized", is_flag=True, default=False)
+@click.option("--client-cert-path")
+@click.argument("device_token")
+@click.argument("messages", nargs=-1)
+def main(
+    verbose,
+    local,
+    sandbox,
+    prod,
+    alt_port,
+    localized,
+    client_cert_path,
+    device_token,
+    messages,
+):
+    logging.basicConfig(level=logging.DEBUG if verbose else logging.INFO)
+    if sum((local, sandbox, prod)) != 1:
+        raise Exception("Specify one of --local/--sandbox/--prod")
 
     ssl_context = create_ssl_context()
-
-    if "--prod" in argv:
-        argv.remove("--prod")
-        host = "api.push.apple.com"
-    elif "--sandbox" in argv:
-        argv.remove("--sandbox")
-        host = "api.development.push.apple.com"
-    elif "--local" in argv:
-        argv.remove("--local")
+    if local:
         host = "localhost"
         ssl_context.load_verify_locations(cafile="tests/stress/go1/cert.pem")
-    else:
-        raise Exception("Must pass flag: --prod/--sandbox/--local")
+    elif sandbox:
+        host = "api.development.push.apple.com"
+    elif prod:
+        host = "api.push.apple.com"
 
-    if "--alt-port" in argv:
-        argv.remove("--alt-port")
-        port = 2197
-    else:
-        port = 443
+    ssl_context.load_cert_chain(certfile=client_cert_path, keyfile=client_cert_path)
 
-    if "simple" in argv:
-        argv.remove("simple")
-        key = "body"
-    elif "localized" in argv:
-        argv.remove("localized")
-        key = "loc-key"
-    else:
-        raise Exception("Must pass command: simple or localized")
-
-    if "--client-cert-path" in argv:
-        i = argv.index("--client-cert-path")
-        cert = argv[i + 1]
-        del argv[i : i + 2]
-        ssl_context.load_cert_chain(certfile=cert, keyfile=cert)
-    else:
-        raise Exception("Must pass flag: --client-cert-path path-file.pem")
-
-    if not argv:
-        raise Exception("Must pass device_token")
-    device_token = argv[0]
-    del argv[0]
-
-    if not argv:
-        raise Exception(USAGE)
-
+    port = 2197 if alt_port else 443
     base_url = f"https://{host}:{port}"
+    key = "loc-key" if localized else "body"
     requests = [
         Request.new(
             f"/3/device/{device_token}",
@@ -96,7 +78,10 @@ if __name__ == "__main__":
             {"aps": {"alert": {key: text}}},
             timeout=10,
         )
-        for text in argv
+        for text in messages
     ]
-
     asyncio.run(send_several(ssl_context, base_url, requests))
+
+
+if __name__ == "__main__":
+    main()
