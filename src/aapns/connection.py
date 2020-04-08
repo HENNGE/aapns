@@ -133,11 +133,12 @@ class Connection:
         )
         try:
             info = write_stream.get_extra_info("ssl_object")
-            # FIXME better exceptions
-            assert info, "HTTP/2 server is required"
+            if not info:
+                raise Closed("Failed TLS handshake")
             proto = info.selected_alpn_protocol()
-            assert proto == "h2", "Failed to negotiate HTTP/2"
-        except AssertionError:
+            if proto != "h2":
+                raise Closed("Failed to negotiate HTTP/2")
+        except Closed:
             write_stream.close()
             with suppress(SSLError, ConnectionError):
                 await write_stream.wait_closed()
@@ -224,7 +225,7 @@ class Connection:
             while not self.closed:
                 data = await self.read_stream.read(2 ** 16)
                 if not data:
-                    break
+                    raise ConnectionError("Server closed the connection")
 
                 for event in self.protocol.receive_data(data):
                     logger.debug("APN: %s", event)
@@ -240,7 +241,6 @@ class Connection:
                             self.max_concurrent_streams = m.new_value
                     elif isinstance(event, h2.events.ConnectionTerminated):
                         self.closing = True
-                        logger.error("FIXME %r", event.additional_data)
                         if not self.outcome:
                             if event.additional_data:
                                 try:
@@ -253,10 +253,8 @@ class Connection:
                                 self.outcome = str(event.error_code)
                         logger.info("Closing with %s", self.outcome)
                     elif not stream_id and error is not None:
-                        # FIXME break the connection,but give users a chance to complete
-                        logger.warning("Bad error %s", event)
-                        self.outcome = str(error)
-                        self.closing = True
+                        logger.warning("Caught off guard: %s", event)
+                        raise ConnectionError(str(error))
                     else:
                         if isinstance(event, h2.events.DataReceived):
                             # Stream flow control is responsibility of the channel.
@@ -272,8 +270,7 @@ class Connection:
                 # it could be that we've received something that h2 needs to acknowledge
                 self.should_write.set()
 
-                # FIXME notify users about possible change to `.blocked`
-                # FIXME selective:
+                # FIXME notify pool users about possible change to `.blocked`
                 # * h2.events.WindowUpdated
                 # * max_concurrent_streams change
                 # * [maybe] starting a stream
@@ -316,8 +313,6 @@ class Connection:
         self.protocol.send_headers(
             stream_id, req.header_with(self.host, self.port), end_stream=False
         )
-        # FIXME don't we have to increment global flow control
-        # also on reception of stream X data?
         self.protocol.increment_flow_control_window(
             MAX_RESPONSE_SIZE, stream_id=stream_id
         )
@@ -325,7 +320,6 @@ class Connection:
         self.should_write.set()
 
         try:
-            # FIXME termination thing...
             while not self.closed:
                 ch.wakeup.clear()
                 with suppress(TimeoutError):
