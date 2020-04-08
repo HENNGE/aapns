@@ -52,8 +52,8 @@ class Pool:
         ]
         if self.state != "closed":
             all = self.active | self.dying
-            bits.append(f"buffered:{sum(c.buffered for c in all)}")
-            bits.append(f"inflight:{sum(c.inflight for c in all)}")
+            bits.append(f"buffered:{sum(connection.buffered for connection in all)}")
+            bits.append(f"inflight:{sum(connection.inflight for connection in all)}")
         bits.append(f"retrying:{self.retrying}")
         bits.append(f"completed:{self.completed}")
         bits.append(f"errors:{self.errors}")
@@ -89,38 +89,38 @@ class Pool:
         self.size = size
         self.maintenance_needed.set()
 
-    def cert_hook(self, c):
-        if not self.outcome and c.outcome == "BadCertificateEnvironment":
+    def termination_hook(self, connection):
+        if not self.outcome and connection.outcome == "BadCertificateEnvironment":
             self.closing = True
-            self.outcome = c.outcome
+            self.outcome = connection.outcome
 
     async def maintain(self):
         while True:
             if self.closing or self.closed:
                 return
 
-            for c in list(self.active):
-                if c.closing:
-                    self.active.remove(c)
-                    self.dying.add(c)
-                    self.cert_hook(c)
+            for connection in list(self.active):
+                if connection.closing:
+                    self.active.remove(connection)
+                    self.dying.add(connection)
+                    self.termination_hook(connection)
 
             while len(self.active) > self.size:
-                c = self.active.pop()
-                c.closing = True
-                self.dying.add(c)
-                self.cert_hook(c)
+                connection = self.active.pop()
+                connection.closing = True
+                self.dying.add(connection)
+                self.termination_hook(connection)
 
-            for c in list(self.dying):
-                if c.closed:
-                    self.dying.remove(c)
-                    self.cert_hook(c)
-                elif not c.channels:
-                    self.dying.remove(c)
+            for connection in list(self.dying):
+                if connection.closed:
+                    self.dying.remove(connection)
+                    self.termination_hook(connection)
+                elif not connection.channels:
+                    self.dying.remove(connection)
                     try:
-                        await c.close()
+                        await connection.close()
                     finally:
-                        self.cert_hook(c)
+                        self.termination_hook(connection)
                 if self.closing or self.closed:
                     return
 
@@ -138,9 +138,9 @@ class Pool:
 
     async def add_one_connection(self):
         try:
-            c = await Connection.create(self.origin, ssl=self.ssl)
-            self.active.add(c)
-            self.cert_hook(c)
+            connection = await Connection.create(self.origin, ssl=self.ssl)
+            self.active.add(connection)
+            self.termination_hook(connection)
             return True
         except Exception:
             logger.exception("Failed creating APN connection")
@@ -155,7 +155,9 @@ class Pool:
                 with suppress(CancelledError):
                     await self.maintenance
 
-            await gather(*(c.close() for c in self.active | self.dying))
+            await gather(
+                *(connection.close() for connection in self.active | self.dying)
+            )
         finally:
             self.closed = True
 
@@ -182,7 +184,7 @@ class Pool:
                 finally:
                     self.retrying -= 1
 
-            raise Timeout()
+            assert False, "unreachable"
 
     @contextmanager
     def count_requests(self):
@@ -203,15 +205,15 @@ class Pool:
 
         # FIXME handle connection getting closed
         # FIXME handle connection replacement
-        conns = list(self.active)
-        shuffle(conns)
-        for c in conns:
+        active = list(self.active)
+        shuffle(active)
+        for connection in active:
             if self.closing:
-                raise Closed()
-            if c.closed:
+                raise Closed(self.outcome)
+            if connection.closed:
                 continue
             try:
-                return await c.post(req)
+                return await connection.post(req)
             except (Blocked, Closed):
                 pass
         else:
