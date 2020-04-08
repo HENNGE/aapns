@@ -74,20 +74,28 @@ class Connection:
     async def create(cls, origin: str, ssl: Optional[SSLContext] = None):
         """Connect to `origin` and return a Connection"""
         url = urlparse(origin)
-        assert url.scheme == "https"
-        assert url.hostname
-        assert not url.username
-        assert not url.password
-        assert not url.path
-        assert not url.params
-        assert not url.query
-        assert not url.fragment
+        if (
+            url.scheme != "https"
+            or not url.hostname
+            or url.username
+            or url.password
+            or url.path
+            or url.params
+            or url.query
+            or url.fragment
+        ):
+            raise ValueError("Origin must be https://<host>[:<port>]")
+
         host = url.hostname
         port = url.port or 443
 
         ssl_context = ssl if ssl else create_ssl_context()
-        assert OP_NO_TLSv1 in ssl_context.options
-        assert OP_NO_TLSv1_1 in ssl_context.options
+        if (
+            OP_NO_TLSv1 not in ssl_context.options
+            or OP_NO_TLSv1_1 not in ssl_context.options
+        ):
+            raise ValueError("SSL Context cannot allow TLS 1.0 or 1.1")
+
         # https://bugs.python.org/issue40111 validate context h2 alpn
 
         protocol = h2.connection.H2Connection(
@@ -142,7 +150,8 @@ class Connection:
         self.writer = create_task(self.background_write(), name="bg-write")
 
     async def post(self, req: "Request") -> "Response":
-        assert len(req.body) <= MAX_NOTIFICATION_PAYLOAD_SIZE
+        if len(req.body) > MAX_NOTIFICATION_PAYLOAD_SIZE:
+            raise ValueError("Request body is too large")
 
         now = time()
         if now > req.deadline:
@@ -393,7 +402,8 @@ class Request:
         elif deadline is None:
             deadline = inf
 
-        assert path.startswith("/")
+        if not path.startswith("/"):
+            raise ValueError("Absolute URL path is required")
         pseudo = dict(method="POST", scheme="https", path=path)
         h = tuple((f":{k}", v) for k, v in pseudo.items()) + tuple(
             (header or {}).items()
