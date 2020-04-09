@@ -3,41 +3,70 @@
     * Closed('[Errno 54] Connection reset by peer') 
     * Closed('Server closed the connection')
 """
+import logging
+from asyncio import CancelledError, create_subprocess_exec, create_task, gather, sleep
+from asyncio.subprocess import PIPE
+from contextlib import asynccontextmanager, suppress
 from os import killpg
 from signal import SIGTERM
-from asyncio import create_subprocess_exec
-from asyncio.subprocess import PIPE
-from contextlib import suppress
-import logging
+
+import pytest
+
+pytestmark = pytest.mark.asyncio
 
 
-async def rr(what, name):
+async def collect(stream, name, output=[]):
     with suppress(CancelledError):
-        async for line in what:
-            logging.warning("%s: %s", name, line.decode("utf-8"))
+        async for blob in stream:
+            line = blob.decode("utf-8").strip()
+            logging.warning("%s: %s", name, line)
+            output.append(line)
 
 
-async def test_1():
+@asynccontextmanager
+async def server_factory(flavour):
     server = await create_subprocess_exec(
-        "go", "run", "tests/stress/server-ok.go", stdout=PIPE, stderr=PIPE, start_new_session=True
+        "go",
+        "run",
+        f"tests/stress/server-{flavour}.go",
+        stdout=PIPE,
+        stderr=PIPE,
+        start_new_session=True,
     )
-    logging.warning("server %r", server)
     try:
-        to = asyncio.create_task(rr(server.stdout, "server:stdout"))
-        te = asyncio.create_task(rr(server.stderr, "server:stderr"))
+        output = []
+        to = create_task(collect(server.stdout, "server:stdout", output))
+        te = create_task(collect(server.stderr, "server:stderr", output))
         try:
-            await asyncio.sleep(5)
+            for delay in (2 ** i for i in range(-10, 3)):  # max 8s total
+                await sleep(delay)
+                if "exit status" in " ".join(output):
+                    raise OSError(f"test server {flavour!r} crashed")
+                if "Serving on" in " ".join(output):
+                    break
+            else:
+                raise TimeoutError(f"test server {flavour!r} did not come up")
+            yield server
         finally:
             to.cancel()
             te.cancel()
+            with suppress(CancelledError):
+                gather(te, to)
     finally:
         with suppress(ProcessLookupError):
-            # server.terminate() is not enough,`go run`'s child somehow survives
+            # server.terminate() is not enough,because `go run`'s child somehow survives
             # Thus, I'm starting the server in a new session and kill the entire session
             killpg(server.pid, SIGTERM)
+        with suppress(CancelledError):
+            await server.wait()
 
 
-if __name__ == "__main__":
-    import asyncio
+@pytest.fixture
+async def ok_server():
+    async with server_factory("ok") as s:
+        yield s
 
-    asyncio.run(test_1())
+
+async def test_nothing(ok_server):
+    await sleep(5)
+    1 / 0
