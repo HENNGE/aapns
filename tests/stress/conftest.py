@@ -7,7 +7,7 @@ from signal import SIGTERM
 
 import pytest
 
-from aapns.connection import Request, create_ssl_context
+from aapns.connection import Request, create_ssl_context, Connection
 
 
 async def collect(stream, name, output=[]):
@@ -48,9 +48,10 @@ async def server_factory(flavour):
             with suppress(CancelledError):
                 gather(te, to)
     finally:
-        with suppress(ProcessLookupError):
+        with suppress(ProcessLookupError, PermissionError):
             # server.terminate() is not enough,because `go run`'s child somehow survives
             # Thus, I'm starting the server in a new session and kill the entire session
+            server.send_signal(0)  # in case the process is gone
             killpg(server.pid, SIGTERM)
         with suppress(CancelledError):
             await server.wait()
@@ -87,3 +88,9 @@ def ssl_context():
 @pytest.fixture
 def request42():
     return Request.new("/3/device/42", {}, {})
+
+
+@pytest.fixture
+async def connection(ssl_context):
+    yield (conn := await Connection.create("https://localhost:2197", ssl_context))
+    await conn.close()

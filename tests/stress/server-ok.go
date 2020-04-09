@@ -22,6 +22,6 @@ func handle(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("apns-id", "42424242-4242-4242-4242-424242424242")
 	os.Stdout.Write(append(dump, "\n\n"...))
-	time.Sleep(time.Second)
+	time.Sleep(time.Second / 4)
 	w.Write([]byte("{}"))
 }

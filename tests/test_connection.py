@@ -7,7 +7,7 @@ from tempfile import TemporaryDirectory
 import pytest
 from aapns.api import create_client
 from aapns.config import Server
-from aapns.errors import BadDeviceToken, Disconnected
+from aapns.errors import BadDeviceToken
 from aapns.models import Alert, Notification
 from httpx import AsyncClient
 from tests.fake_apns_server import start_fake_apns_server
