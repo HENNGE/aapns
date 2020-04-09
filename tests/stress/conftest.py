@@ -7,7 +7,8 @@ from signal import SIGTERM
 
 import pytest
 
-from aapns.connection import Request, create_ssl_context, Connection
+from aapns.connection import Connection, Request, create_ssl_context
+from aapns.pool import Pool
 
 
 async def collect(stream, name, output=[]):
@@ -93,4 +94,10 @@ def request42():
 @pytest.fixture
 async def connection(ssl_context):
     yield (conn := await Connection.create("https://localhost:2197", ssl_context))
+    await conn.close()
+
+
+@pytest.fixture
+async def pool(ssl_context):
+    yield (conn := await Pool.create("https://localhost:2197", 2, ssl_context))
     await conn.close()
