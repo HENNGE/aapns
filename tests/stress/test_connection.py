@@ -42,7 +42,7 @@ async def test_bad_token(bad_token_server, connection, request42):
     assert response.data["reason"] == "BadDeviceToken"
 
 
-async def test_closing_connection(bad_token_server, ssl_context, request42):
+async def test_closing_connection(ok_server, ssl_context, request42):
     c = await aapns.connection.Connection.create("https://localhost:2197", ssl_context)
     try:
         task = asyncio.create_task(c.post(request42))
@@ -54,15 +54,10 @@ async def test_closing_connection(bad_token_server, ssl_context, request42):
         await task
 
 
-async def test_closed_connection(bad_token_server, connection, request42):
-    response = await connection.post(request42)
-    assert response.code == 400
-    assert response.apns_id
-    assert response.data["reason"] == "BadDeviceToken"
-
-
-async def test_foo(ok_server, connection, request42):
-    await connection.post(request42)
+async def test_closed_connection(ok_server, connection, request42):
+    await connection.close()
+    with pytest.raises(aapns.errors.Closed):
+        await connection.post(request42)
 
 
 async def test_termination(terminating_server, connection, request42):

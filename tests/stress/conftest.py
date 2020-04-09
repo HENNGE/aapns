@@ -7,6 +7,9 @@ from signal import SIGTERM
 
 import pytest
 
+import aapns.api
+import aapns.config
+import aapns.models
 from aapns.connection import Connection, Request, create_ssl_context
 from aapns.pool import Pool
 
@@ -99,5 +102,23 @@ async def connection(ssl_context):
 
 @pytest.fixture
 async def pool(ssl_context):
-    yield (conn := await Pool.create("https://localhost:2197", 2, ssl_context))
-    await conn.close()
+    yield (pool := await Pool.create("https://localhost:2197", 2, ssl_context))
+    await pool.close()
+
+
+@pytest.fixture
+async def client():
+    client = await aapns.api.create_client(
+        ".test-client-certificate.pem",
+        aapns.config.Server("localhost", 2197),
+        cafile=".test-server-certificate.pem",
+    )
+    yield client
+    await client.close()
+
+
+@pytest.fixture
+def notification():
+    return aapns.models.Notification(
+        alert=aapns.models.Alert(title="title", body="body")
+    )

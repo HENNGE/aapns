@@ -37,7 +37,9 @@ async def do_send(context: Context, notification: models.Notification) -> str:
     client = await create_client(
         context.cert,
         context.server,
-        **{"cafile": ".cafile"} if context.server.host == "localhost" else {},
+        **{"cafile": ".test-server-certificate.pem"}
+        if context.server.host == "localhost"
+        else {},
     )
     try:
         resp_id = await client.send_notification(
