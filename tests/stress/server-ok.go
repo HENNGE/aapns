@@ -11,7 +11,7 @@ import (
 func main() {
 	srv := &http.Server{Addr: ":2197", Handler: http.HandlerFunc(handle)}
 	log.Printf("Serving on https://0.0.0.0:2197")
-	log.Fatal(srv.ListenAndServeTLS("cert.pem", "key.pem"))
+	log.Fatal(srv.ListenAndServeTLS(".test-server-certificate.pem", ".test-server-private-key.pem"))
 }
 
 func handle(w http.ResponseWriter, r *http.Request) {

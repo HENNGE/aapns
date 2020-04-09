@@ -60,7 +60,7 @@ def main(
     ssl_context = create_ssl_context()
     if local:
         host = "localhost"
-        ssl_context.load_verify_locations(cafile="tests/stress/go1/cert.pem")
+        ssl_context.load_verify_locations(cafile=".test-server-certificate.pem")
     elif sandbox:
         host = "api.development.push.apple.com"
     elif prod:
