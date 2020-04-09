@@ -7,6 +7,8 @@ from signal import SIGTERM
 
 import pytest
 
+from aapns.connection import Request, create_ssl_context
+
 
 async def collect(stream, name, output=[]):
     with suppress(CancelledError):
@@ -70,3 +72,18 @@ async def bad_token_server():
 async def terminating_server():
     async with server_factory("terminates-connection") as s:
         yield s
+
+
+@pytest.fixture
+def ssl_context():
+    ctx = create_ssl_context()
+    ctx.load_verify_locations(cafile=".test-server-certificate.pem")
+    ctx.load_cert_chain(
+        certfile=".test-client-certificate.pem", keyfile=".test-client-certificate.pem"
+    )
+    return ctx
+
+
+@pytest.fixture
+def request42():
+    return Request.new("/3/device/42", {}, {})
