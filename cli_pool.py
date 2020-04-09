@@ -42,7 +42,9 @@ async def test_many(count=1000):
 
     ssl_context = create_ssl_context()
     ssl_context.load_verify_locations(cafile=".test-server-certificate.pem")
-    ssl_context.load_cert_chain(certfile=".test-client-certificate.pem", keyfile=".test-client-certificate.pem")
+    ssl_context.load_cert_chain(
+        certfile=".test-client-certificate.pem", keyfile=".test-client-certificate.pem"
+    )
 
     try:
         c = await Pool.create("https://localhost:2197", ssl=ssl_context)
