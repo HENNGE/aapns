@@ -433,9 +433,11 @@ class Request:
         deadline = min(deadlines.values())
         deadline_source = [name for name, v in deadlines.items() if v == deadline][0]
 
-        pseudo = dict(method="POST", scheme="https", path=path)
-        request_header = tuple((f":{k}", v) for k, v in pseudo.items()) + tuple(
-            (header or {}).items()
+        request_header = (
+            (":method", "POST"),
+            (":scheme", "https"),
+            (":path", path),
+            *(header or {}).items(),
         )
 
         text = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
