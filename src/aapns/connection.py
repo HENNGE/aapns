@@ -162,9 +162,7 @@ class Connection:
         if len(request.body) > MAX_NOTIFICATION_PAYLOAD_SIZE:
             raise ValueError("Request body is too large")
 
-        now = time()
-        if now > request.deadline:
-            raise Timeout("Request timed out")
+        request.time_left_or_time_out
         if self.closing or self.closed:
             raise Closed(self.outcome)
         if self.blocked:
@@ -191,12 +189,10 @@ class Connection:
 
         try:
             while not self.closed:
+                remaining = request.time_left_or_time_out
                 channel.wakeup.clear()
                 with suppress(TimeoutError):
-                    await wait_for(channel.wakeup.wait(), request.deadline - now)
-                now = time()
-                if now > request.deadline:
-                    raise Timeout("Request timed out")
+                    await wait_for(channel.wakeup.wait(), remaining)
                 for event in channel.events:
                     if isinstance(event, h2.events.ResponseReceived):
                         channel.header = dict(event.headers)
@@ -398,10 +394,18 @@ class Request:
     header: tuple
     body: bytes
     deadline: float
+    deadline_source: str
 
     def header_with(self, host: str, port: int) -> tuple:
         """Request header including :authority pseudo header field for target server"""
         return ((":authority", f"{host}:{port}"),) + self.header
+
+    @property
+    def time_left_or_time_out(self) -> float:
+        """Raises Timeout() if the request has timed out, or return remaining time"""
+        if (remaining := self.deadline - time()) > 0:
+            return remaining
+        raise Timeout("Request timed out: %s", self.deadline_source)
 
     @classmethod
     def new(
@@ -409,23 +413,30 @@ class Request:
         path: str,
         header: Optional[dict],
         data: dict,
-        timeout: Optional[float] = None,
+        timeout: Optional[float] = 10,
         deadline: Optional[float] = None,
+        expiration: Optional[float] = None,
     ):
-        if timeout is not None and deadline is not None:
-            raise ValueError("Specify timeout or deadline, but not both")
-        elif timeout is not None:
-            deadline = time() + timeout
-        elif deadline is None:
-            deadline = inf
-
         if not path.startswith("/"):
             raise ValueError("Absolute URL path is required")
+
+        deadlines = {"not set": inf}
+        if timeout is not None:
+            deadlines["timeout"] = time() + timeout
+        if deadline is not None:
+            deadlines["deadline"] = deadline
+        if expiration is not None:
+            deadlines["expiration"] = expiration
+        deadline = min(deadlines.values())
+        deadline_source = [name for name, v in deadlines.items() if v == deadline][0]
+
         pseudo = dict(method="POST", scheme="https", path=path)
-        h = tuple((f":{k}", v) for k, v in pseudo.items()) + tuple(
+        request_header = tuple((f":{k}", v) for k, v in pseudo.items()) + tuple(
             (header or {}).items()
         )
-        return cls(h, json.dumps(data, ensure_ascii=False).encode("utf-8"), deadline)
+
+        body = json.dumps(data, ensure_ascii=False).encode("utf-8")
+        return cls(request_header, body, deadline, deadline_source)
 
 
 @dataclass

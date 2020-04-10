@@ -70,7 +70,7 @@ class Pool:
     def __post_init__(self):
         self.maintenance = create_task(self.maintain(), name="maintenance")
 
-    async def post(self, req: "Request") -> "Response":
+    async def post(self, request: "Request") -> "Response":
         """Post the `request` on a connection in this pool, with retries"""
         with self.count_requests():
             for delay in (10 ** i for i in count(-3, 0.5)):
@@ -78,15 +78,15 @@ class Pool:
                     raise Closed(self.outcome)
 
                 try:
-                    return await self.post_once(req)
+                    return await self.post_once(request)
                 except Blocked:
                     pass
 
                 if self.closing:
                     raise Closed(self.outcome)
 
-                if time() + delay > req.deadline:
-                    raise Timeout()
+                if request.time_left_or_time_out < delay:
+                    raise Timeout("Request would time out awaiting retry")
 
                 try:
                     self.retrying += 1
@@ -231,7 +231,7 @@ class Pool:
         else:
             self.completed += 1
 
-    async def post_once(self, req: "Request") -> "Response":
+    async def post_once(self, request: "Request") -> "Response":
         # FIXME ideally, follow weighted round-robin discipline:
         # * generally allocate requests evenly across connections
         # * but keep load for few last connections lighter
@@ -245,7 +245,7 @@ class Pool:
             if connection.closed:
                 continue
             try:
-                return await connection.post(req)
+                return await connection.post(request)
             except (Blocked, Closed):
                 pass
         else:
