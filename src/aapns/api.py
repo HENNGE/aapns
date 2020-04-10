@@ -3,7 +3,6 @@ from __future__ import annotations
 import abc
 import asyncio
 import os
-import shutil
 from dataclasses import dataclass, replace
 from tempfile import TemporaryDirectory
 from typing import Optional
@@ -12,7 +11,6 @@ from . import config, errors, models
 from .pool import Pool, Request, create_ssl_context
 
 
-@dataclass(frozen=True)
 class APNSBaseClient(metaclass=abc.ABCMeta):
     @abc.abstractmethod
     async def send_notification(
@@ -32,7 +30,6 @@ class APNSBaseClient(metaclass=abc.ABCMeta):
         pass
 
 
-@dataclass(frozen=True)
 class Target(metaclass=abc.ABCMeta):
     @abc.abstractmethod
     async def create_client(self) -> APNSBaseClient:
@@ -43,7 +40,7 @@ class Target(metaclass=abc.ABCMeta):
 class Server(Target):
     client_cert_path: str
     host: str
-    port: int = 443
+    port: int = config.DEFAULT_PORT
     ca_file: Optional[str] = None
     pool_size: int = 2
 
@@ -59,19 +56,19 @@ class Server(Target):
 
     @classmethod
     def production(cls, client_cert_path: str) -> Server:
-        return cls(client_cert_path=client_cert_path, host="api.push.apple.com")
+        return cls(client_cert_path=client_cert_path, host=config.PRODUCTION_HOST)
 
     @classmethod
     def production_alt_port(cls, client_cert_path: str) -> Server:
-        return replace(cls.production(client_cert_path), port=2197)
+        return replace(cls.production(client_cert_path), port=config.ALT_PORT)
 
     @classmethod
     def development(cls, client_cert_path: str) -> Server:
-        return cls(client_cert_path=client_cert_path, host="api.development.apple.com")
+        return cls(client_cert_path=client_cert_path, host=config.SANDBOX_HOST)
 
     @classmethod
     def development_alt_port(cls, client_cert_path: str) -> Server:
-        return replace(cls.production(client_cert_path), port=2197)
+        return replace(cls.production(client_cert_path), port=config.ALT_PORT)
 
 
 @dataclass(frozen=True)
@@ -99,12 +96,7 @@ class Simulator(Target, APNSBaseClient):
                 fobj.write(notification.encode())
 
             process = await asyncio.create_subprocess_exec(
-                shutil.which("xcrun"),
-                "simctl",
-                "push",
-                self.device_id,
-                self.app_id,
-                path,
+                "xcrun", "simctl", "push", self.device_id, self.app_id, path,
             )
             await process.communicate()
             if process.returncode != 0:
