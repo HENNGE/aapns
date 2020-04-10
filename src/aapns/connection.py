@@ -310,6 +310,9 @@ class Connection:
                         if m:
                             self.max_concurrent_streams = m.new_value
                     elif isinstance(event, h2.events.ConnectionTerminated):
+                        # When Apple is not happy with the whole connection,
+                        # it sends smth like {"reason": "BadCertificateEnvironment"}
+                        # Catch it here, so that connection pool can be invalidated.
                         self.closing = True
                         if not self.outcome:
                             if event.additional_data:
