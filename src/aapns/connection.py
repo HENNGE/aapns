@@ -464,6 +464,7 @@ class Response:
     @property
     def reason(self) -> Optional[str]:
         """Response JSON 'reason' value, used in error responses."""
+        return self.data.get("reason") if self.data else None
 
 
 def create_ssl_context() -> ssl.SSLContext:

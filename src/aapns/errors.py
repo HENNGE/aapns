@@ -32,7 +32,7 @@ class StreamReset(APNSError):
 class ResponseError(APNSError):
     codename: str
 
-    def __init__(self, reason: str, apns_id: str):
+    def __init__(self, reason: str, apns_id: Optional[str]):
         self.reason = reason
         self.apns_id = apns_id
         super().__init__(reason)
@@ -80,5 +80,5 @@ ServiceUnavailable = create("ServiceUnavailable")
 Shutdown = create("Shutdown")
 
 
-def get(reason: Any, apns_id: str) -> ResponseError:
+def get(reason: Any, apns_id: Optional[str]) -> ResponseError:
     return CODES.get(reason, UnknownResponseError)(reason, apns_id)

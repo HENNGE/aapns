@@ -21,7 +21,7 @@ class APNS:
         priority: config.Priority = config.Priority.normal,
         topic: Optional[str] = None,
         collapse_id: Optional[str] = None,
-    ) -> str:
+    ) -> Optional[str]:
 
         r = Request.new(
             path=f"/3/device/{token}",
@@ -36,7 +36,10 @@ class APNS:
             data=notification.get_dict(),
             timeout=10,
         )
-        return (await self.pool.post(r)).apns_id
+        response = await self.pool.post(r)
+        if response.code != 200:
+            raise errors.get(response.reason, response.apns_id)
+        return response.apns_id
 
     async def close(self):
         await self.pool.close()
