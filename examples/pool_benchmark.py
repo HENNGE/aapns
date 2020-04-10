@@ -1,3 +1,13 @@
+"""Example of using aapns.pool.Pool (mid-level API)
+
+Performance test for the connection pool.
+
+Expects a local server on port 2197, for example, run:
+    go run tests/stress/server-ok.go
+
+Be careful if you target sandbox or production server, Apple won't like the flood.
+Consider limiting number of requests to ~100 or so.
+"""
 import logging
 import sys
 from asyncio import CancelledError, create_task, gather, run, sleep
@@ -5,13 +15,7 @@ from collections import defaultdict
 from contextlib import suppress
 from typing import Any, Dict
 
-import pytest
-
 from aapns.pool import Blocked, Closed, Pool, Request, Timeout, create_ssl_context
-
-stats: Dict[Any, int] = defaultdict(int)
-
-pytestmark = pytest.mark.asyncio
 
 
 async def one_request(c, i):
@@ -23,20 +27,21 @@ async def one_request(c, i):
             timeout=min(i * 0.1, 10),
         )
         resp = await c.post(req)
-        # logging.info("%s %s %s", i, resp.code, resp.data)
-        stats[resp.code] += 1
     except (Timeout, Blocked, Closed) as e:
-        # logging.info("%s %r", i, e)
-        stats[repr(e)] += 1
+        pass
 
 
-async def test_many(count=1000):
+async def many_requests(count):
     c = None
 
     async def monitor():
-        while True:
+        try:
+            while True:
+                logging.info("Pool %s", c)
+                await sleep(0.1)
+        except:
             logging.info("Pool %s", c)
-            await sleep(0.1)
+            raise
 
     mon = create_task(monitor())
 
@@ -56,7 +61,6 @@ async def test_many(count=1000):
     except Closed:
         logging.warning("Oops, closed")
     finally:
-        print(stats)
         mon.cancel()
         with suppress(CancelledError):
             await mon
@@ -65,4 +69,4 @@ async def test_many(count=1000):
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     count = int(sys.argv[1]) if len(sys.argv) > 1 else 2000
-    run(test_many(count))
+    run(many_requests(count))

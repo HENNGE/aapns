@@ -1,3 +1,4 @@
+"""Example of using aapns.connection.Connection (low-level API)"""
 import asyncio
 import logging
 import sys
@@ -5,10 +6,6 @@ import sys
 import click
 
 from aapns.connection import Connection, Request, create_ssl_context
-
-USAGE = (
-    "Usage: python cli_connection.py [opts] device_token cmd message-1 message-2 ..."
-)
 
 
 async def send_several(ssl_context, base_url, requests):
