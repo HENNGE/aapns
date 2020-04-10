@@ -237,6 +237,7 @@ class Connection:
                     await self.reader
 
             self.closed = True
+            self.should_write.set()
 
             # at this point, we must release or cancel all pending requests
             for channel in self.channels.values():
@@ -247,6 +248,7 @@ class Connection:
                 await self.write_stream.wait_closed()
         finally:
             self.closed = True
+            self.should_write.set()
 
     @property
     def state(self):
@@ -352,6 +354,7 @@ class Connection:
             logger.exception("background read task died")
         finally:
             self.closing = self.closed = True
+            self.should_write.set()
             for channel in self.channels.values():
                 channel.wakeup.set()
 
