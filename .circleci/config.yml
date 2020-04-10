@@ -18,6 +18,12 @@ commands:
       - run:
           name: Run Poetry Command
           command: ~/.poetry/bin/poetry run << parameters.command >>
+  go_toolchain:
+    steps:
+      - run:
+          name: Install go tool chain for the test server
+          command: |
+            sudo apt-get install golang-go
 jobs:
   pytest:
     working_directory: ~/workspace
@@ -25,6 +31,7 @@ jobs:
       - image: circleci/python:3.8
     steps:
       - checkout
+      - go_toolchain
       - poetry:
           command: pytest
   mypy:
