@@ -47,8 +47,8 @@ master_doc = "index"
 
 # General information about the project.
 project = "AAPNS"
-copyright = "2019, HDE Inc"
-author = "HDE Inc"
+copyright = "2020 HENNGE K.K."
+author = "HENNGE K.K."
 
 # The version info for the project you're documenting, acts as replacement for
 # |version| and |release|, also used in various other places throughout the
@@ -124,7 +124,7 @@ latex_elements = {
 # (source start file, target name, title,
 #  author, documentclass [howto, manual, or own class]).
 latex_documents = [
-    (master_doc, "AAPNS.tex", "AAPNS Documentation", "HDE Inc", "manual")
+    (master_doc, "AAPNS.tex", "AAPNS Documentation", "HENNGE K.K.", "manual")
 ]
 
 
