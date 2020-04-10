@@ -1,10 +1,6 @@
-""" Observed connection outcomes, so far:
-    * Closed('ErrorCodes.NO_ERROR')
-    * Closed('[Errno 54] Connection reset by peer') 
-    * Closed('Server closed the connection')
-"""
 import asyncio
 import logging
+import re
 import time
 
 import pytest
@@ -61,7 +57,12 @@ async def test_closed_connection(ok_server, connection, request42):
 
 
 async def test_termination(terminating_server, connection, request42):
-    with pytest.raises(aapns.errors.Closed):
+    """ Observed connection outcomes, so far:
+        * Closed('ErrorCodes.NO_ERROR')
+        * Closed('[Errno 54] Connection reset by peer')
+        * Closed('Server closed the connection')
+    """
+    with pytest.raises(aapns.errors.Closed, match=match):
         # terminating server may break the first request, and definitely breaks the second
         await connection.post(request42)
         await connection.post(request42)

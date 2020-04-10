@@ -447,10 +447,10 @@ class Response:
 
     @classmethod
     def new(cls, header: Optional[dict], body: bytes):
-        h = {**(header or {})}
-        code = int(h.pop(":status", "0"))
+        head = {**(header or {})}
+        code = int(head.pop(":status", "0"))
         try:
-            return cls(code, h, json.loads(body) if body else None)
+            return cls(code, head, json.loads(body) if body else None)
         except json.JSONDecodeError:
             raise FormatError(f"Not JSON: {body[:20]!r}")
 
