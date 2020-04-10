@@ -62,6 +62,9 @@ async def test_termination(terminating_server, connection, request42):
         * Closed('[Errno 54] Connection reset by peer')
         * Closed('Server closed the connection')
     """
+    match = re.compile(
+        "ErrorCodes.NO_ERROR|Connection reset by peer|Server closed the connection"
+    )
     with pytest.raises(aapns.errors.Closed, match=match):
         # terminating server may break the first request, and definitely breaks the second
         await connection.post(request42)
