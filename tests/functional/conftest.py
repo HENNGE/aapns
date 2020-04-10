@@ -34,8 +34,10 @@ async def server_factory(flavour):
     )
     try:
         output = []
-        to = create_task(collect(server.stdout, "server:stdout", output))
-        te = create_task(collect(server.stderr, "server:stderr", output))
+        collectors = (
+            create_task(collect(server.stdout, "server:stdout", output)),
+            create_task(collect(server.stderr, "server:stderr", output)),
+        )
         try:
             for delay in (2 ** i for i in range(-10, 3)):  # max 8s total
                 await sleep(delay)
@@ -47,10 +49,10 @@ async def server_factory(flavour):
                 raise TimeoutError(f"test server {flavour!r} did not come up")
             yield server
         finally:
-            to.cancel()
-            te.cancel()
+            for c in collectors:
+                c.cancel()
             with suppress(CancelledError):
-                gather(te, to)
+                gather(*collectors)
     finally:
         with suppress(ProcessLookupError, PermissionError):
             # server.terminate() is not enough,because `go run`'s child somehow survives
