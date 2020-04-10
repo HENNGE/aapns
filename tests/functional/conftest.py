@@ -6,13 +6,19 @@ from contextlib import asynccontextmanager, suppress
 from os import killpg
 from signal import SIGTERM
 
-import pytest
-
 import aapns.api
 import aapns.config
 import aapns.models
+import pytest
 from aapns.connection import Connection, Request, create_ssl_context
 from aapns.pool import Pool
+
+TARGET = aapns.api.Server(
+    "tests/functional/test-client-certificate.pem",
+    "localhost",
+    2197,
+    ca_file="tests/functional/test-server-certificate.pem",
+)
 
 
 async def collect(stream, name, output=[]):
@@ -114,11 +120,7 @@ async def pool(ssl_context):
 
 @pytest.fixture
 async def client():
-    client = await aapns.api.create_client(
-        "tests/functional/test-client-certificate.pem",
-        aapns.config.Server("localhost", 2197),
-        cafile="tests/functional/test-server-certificate.pem",
-    )
+    client = await TARGET.create_client()
     yield client
     await client.close()
 

@@ -1,11 +1,11 @@
 repos:
 - repo: https://github.com/ambv/black
-  rev: stable
+  rev: 19.10b0
   hooks:
   - id: black
     language_version: python3.7
 - repo: https://github.com/timothycrosley/isort
-  rev: 4.3.21-2
+  rev: 4.3.21
   hooks:
   - id: isort
     language: python_venv

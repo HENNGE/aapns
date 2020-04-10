@@ -1,14 +1,119 @@
-from typing import Optional
+from __future__ import annotations
 
-import attr
+import abc
+import asyncio
+import os
+import shutil
+from dataclasses import dataclass, replace
+from tempfile import TemporaryDirectory
+from typing import Optional
 
 from . import config, errors, models
 from .pool import Pool, Request, create_ssl_context
 
 
-@attr.s(auto_attribs=True, frozen=True)
-class APNS:
-    server: config.Server
+@dataclass(frozen=True)
+class APNSBaseClient(metaclass=abc.ABCMeta):
+    @abc.abstractmethod
+    async def send_notification(
+        self,
+        token: str,
+        notification: models.Notification,
+        *,
+        apns_id: Optional[str] = None,
+        expiration: Optional[int] = None,
+        priority: config.Priority = config.Priority.normal,
+        topic: Optional[str] = None,
+        collapse_id: Optional[str] = None,
+    ) -> Optional[str]:
+        pass
+
+    async def close(self):
+        pass
+
+
+@dataclass(frozen=True)
+class Target(metaclass=abc.ABCMeta):
+    @abc.abstractmethod
+    async def create_client(self) -> APNSBaseClient:
+        pass
+
+
+@dataclass(frozen=True)
+class Server(Target):
+    client_cert_path: str
+    host: str
+    port: int = 443
+    ca_file: Optional[str] = None
+    pool_size: int = 2
+
+    async def create_client(self) -> APNSBaseClient:
+        base_url = f"https://{self.host}:{self.port}"
+        ssl_context = create_ssl_context()
+        if self.ca_file:
+            ssl_context.load_verify_locations(cafile=self.ca_file)
+        ssl_context.load_cert_chain(
+            certfile=self.client_cert_path, keyfile=self.client_cert_path
+        )
+        return APNS(await Pool.create(base_url, size=self.pool_size, ssl=ssl_context))
+
+    @classmethod
+    def production(cls, client_cert_path: str) -> Server:
+        return cls(client_cert_path=client_cert_path, host="api.push.apple.com")
+
+    @classmethod
+    def production_alt_port(cls, client_cert_path: str) -> Server:
+        return replace(cls.production(client_cert_path), port=2197)
+
+    @classmethod
+    def development(cls, client_cert_path: str) -> Server:
+        return cls(client_cert_path=client_cert_path, host="api.development.apple.com")
+
+    @classmethod
+    def development_alt_port(cls, client_cert_path: str) -> Server:
+        return replace(cls.production(client_cert_path), port=2197)
+
+
+@dataclass(frozen=True)
+class Simulator(Target, APNSBaseClient):
+    device_id: str
+    app_id: str
+
+    async def create_client(self) -> APNSBaseClient:
+        return self
+
+    async def send_notification(
+        self,
+        token: str,
+        notification: models.Notification,
+        *,
+        apns_id: Optional[str] = None,
+        expiration: Optional[int] = None,
+        priority: config.Priority = config.Priority.normal,
+        topic: Optional[str] = None,
+        collapse_id: Optional[str] = None,
+    ) -> Optional[str]:
+        with TemporaryDirectory() as workspace:
+            path = os.path.join(workspace, "notification.apns")
+            with open(path, "wb") as fobj:
+                fobj.write(notification.encode())
+
+            process = await asyncio.create_subprocess_exec(
+                shutil.which("xcrun"),
+                "simctl",
+                "push",
+                self.device_id,
+                self.app_id,
+                path,
+            )
+            await process.communicate()
+            if process.returncode != 0:
+                raise Exception("xcrun failed")
+        return None
+
+
+@dataclass(frozen=True)
+class APNS(APNSBaseClient):
     pool: Pool
 
     async def send_notification(
@@ -43,14 +148,3 @@ class APNS:
 
     async def close(self):
         await self.pool.close()
-
-
-async def create_client(
-    client_cert_path: str, server: config.Server, *, cafile: Optional[str] = None,
-) -> APNS:
-    base_url = f"https://{server.host}:{server.port}"
-    ssl_context = create_ssl_context()
-    if cafile:
-        ssl_context.load_verify_locations(cafile=cafile)
-    ssl_context.load_cert_chain(certfile=client_cert_path, keyfile=client_cert_path)
-    return APNS(server, await Pool.create(base_url, ssl=ssl_context))
