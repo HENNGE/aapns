@@ -218,6 +218,8 @@ class Pool:
             self.active.add(connection)
             self.termination_hook(connection)
             return True
+        except OSError as e:
+            logger.error("%s", e)
         except Exception:
             logger.exception("Failed creating APN connection")
 
