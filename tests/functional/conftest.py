@@ -52,7 +52,7 @@ async def server_factory(flavour):
             for c in collectors:
                 c.cancel()
             with suppress(CancelledError):
-                gather(*collectors)
+                await gather(*collectors)
     finally:
         with suppress(ProcessLookupError, PermissionError):
             # server.terminate() is not enough,because `go run`'s child somehow survives

@@ -14,7 +14,7 @@ async def test_bad_pool_size():
 
 async def test_bad_origin():
     with pytest.raises(ValueError):
-        await Pool.create("just.host.name.not.ok")
+        await Pool.create("just.host.name.is.invalid")
 
 
 async def test_bad_context():

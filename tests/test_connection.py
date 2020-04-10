@@ -10,7 +10,10 @@ pytestmark = pytest.mark.asyncio
 @pytest.mark.parametrize(
     "origin",
     (
+        "just.hostname.is.invalid",
         "http://localhost",
+        "https://user@localhost:1234",
+        "https://user:pass@localhost:1234",
         "https://localhost:1234/foo/bar",
         "https://localhost:1234?q=ax",
         "https://localhost:1234;p=ax",
