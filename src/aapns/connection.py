@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import asyncio
 import json
+import ssl
 from asyncio import CancelledError, TimeoutError, create_task, open_connection, wait_for
 from contextlib import suppress
 from dataclasses import dataclass, field
 from logging import getLogger
 from math import inf
-from ssl import OP_NO_TLSv1, OP_NO_TLSv1_1, SSLContext, SSLError, create_default_context
+from ssl import OP_NO_TLSv1, OP_NO_TLSv1_1, SSLError, create_default_context
 from time import time
 from typing import Dict, List, Optional
 from urllib.parse import urlparse
@@ -79,7 +80,9 @@ class Connection:
     last_stream_id_sent: int = -1  # client streams are odd
 
     @classmethod
-    async def create(cls, origin: str, ssl: Optional[SSLContext] = None) -> Connection:
+    async def create(
+        cls, origin: str, ssl: Optional[ssl.SSLContext] = None
+    ) -> Connection:
         """Connect to `origin` and return a Connection"""
         url = urlparse(origin)
         if (
@@ -99,8 +102,8 @@ class Connection:
 
         ssl_context = ssl if ssl else create_ssl_context()
         if (
-            OP_NO_TLSv1 not in ssl_context.options
-            or OP_NO_TLSv1_1 not in ssl_context.options
+            OP_NO_TLSv1 not in ssl_context.options  # type: ignore # https://github.com/python/typeshed/issues/3920
+            or OP_NO_TLSv1_1 not in ssl_context.options  # type: ignore
         ):
             raise ValueError("SSL Context cannot allow TLS 1.0 or 1.1")
 
@@ -416,7 +419,7 @@ class Request:
         timeout: Optional[float] = 10,
         deadline: Optional[float] = None,
         expiration: Optional[float] = None,
-    ):
+    ) -> Request:
         if not path.startswith("/"):
             raise ValueError("Absolute URL path is required")
 
@@ -446,7 +449,7 @@ class Response:
     data: Optional[dict]
 
     @classmethod
-    def new(cls, header: Optional[dict], body: bytes):
+    def new(cls, header: Optional[dict], body: bytes) -> Response:
         head = {**(header or {})}
         code = int(head.pop(":status", "0"))
         try:
@@ -455,11 +458,15 @@ class Response:
             raise FormatError(f"Not JSON: {body[:20]!r}")
 
     @property
-    def apns_id(self):
+    def apns_id(self) -> Optional[str]:
         return self.header.get("apns-id", None)
 
+    @property
+    def reason(self) -> Optional[str]:
+        """Response JSON 'reason' value, used in error responses."""
 
-def create_ssl_context():
+
+def create_ssl_context() -> ssl.SSLContext:
     """A basic SSL context suitable for HTTP/2 and APN."""
     context = create_default_context()
     context.options |= OP_NO_TLSv1
