@@ -85,7 +85,7 @@ class Pool:
                 if self.closing:
                     raise Closed(self.outcome)
 
-                if request.time_left_or_time_out < delay:
+                if request.get_time_left_or_fail() < delay:
                     raise Timeout("Request would time out awaiting retry")
 
                 try:

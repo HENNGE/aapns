@@ -165,7 +165,7 @@ class Connection:
         if len(request.body) > MAX_NOTIFICATION_PAYLOAD_SIZE:
             raise ValueError("Request body is too large")
 
-        request.time_left_or_time_out
+        request.get_time_left_or_fail()
         if self.closing or self.closed:
             raise Closed(self.outcome)
         if self.blocked:
@@ -192,7 +192,7 @@ class Connection:
 
         try:
             while not self.closed:
-                remaining = request.time_left_or_time_out
+                remaining = request.get_time_left_or_fail()
                 channel.wakeup.clear()
                 with suppress(TimeoutError):
                     await wait_for(channel.wakeup.wait(), remaining)
@@ -406,8 +406,7 @@ class Request:
         """Request header including :authority pseudo header field for target server"""
         return ((":authority", f"{host}:{port}"),) + self.header
 
-    @property
-    def time_left_or_time_out(self) -> float:
+    def get_time_left_or_fail(self) -> float:
         """Raises Timeout() if the request has timed out, or return remaining time"""
         if (remaining := self.deadline - time()) > 0:
             return remaining
