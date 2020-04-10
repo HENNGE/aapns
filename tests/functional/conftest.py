@@ -27,7 +27,7 @@ async def server_factory(flavour):
     server = await create_subprocess_exec(
         "go",
         "run",
-        f"tests/stress/server-{flavour}.go",
+        f"tests/functional/server-{flavour}.go",
         stdout=PIPE,
         stderr=PIPE,
         start_new_session=True,

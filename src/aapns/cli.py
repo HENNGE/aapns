@@ -1,7 +1,7 @@
 import asyncio
 import logging
 from asyncio import get_event_loop
-from typing import Dict
+from typing import Dict, Optional
 
 import attr
 import click
@@ -33,7 +33,7 @@ class Context:
     verbose = attr.ib()
 
 
-async def do_send(context: Context, notification: models.Notification) -> str:
+async def do_send(context: Context, notification: models.Notification) -> Optional[str]:
     client = await create_client(
         context.cert,
         context.server,

@@ -37,7 +37,11 @@ async def test_bad_token(bad_token_server, client, notification):
 
 async def test_closing_client(ok_server, ssl_context, notification):
     # FIXME
-    c = await aapns.api.create_client("https://localhost:2197", ssl_context)
+    c = await aapns.api.create_client(
+        ".test-client-certificate.pem",
+        aapns.config.Server("localhost", 2197),
+        cafile=".test-server-certificate.pem",
+    )
     try:
         task = asyncio.create_task(c.send_notification("42", notification))
         await asyncio.sleep(0.1)
@@ -55,7 +59,7 @@ async def test_closed_client(ok_server, client, notification):
 
 
 async def test_termination(terminating_server, client, notification):
-    with pytest.raises(aapns.errors.Closed):
+    with pytest.raises(aapns.errors.Timeout):
         # terminating server may break the first request, and definitely breaks the second
         await client.send_notification("42", notification)
         await client.send_notification("42", notification)
