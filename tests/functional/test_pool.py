@@ -77,6 +77,7 @@ async def test_performance(ok_server, pool, request42):
 async def test_resize(ok_server, pool, request42):
     await pool.post(request42)
     assert len(pool.active) == 2
+
     pool.resize(4)
     deadline = time.time() + 1
     for i in itertools.count(-3, 0.5):
@@ -88,3 +89,36 @@ async def test_resize(ok_server, pool, request42):
             if time.time() > deadline:
                 raise
     await asyncio.gather(*(pool.post(request42) for i in "1234"))
+
+    pool.resize(2)
+    deadline = time.time() + 1
+    for i in itertools.count(-3, 0.5):
+        await asyncio.sleep(10 ** i)
+        try:
+            assert len(pool.active) == 2
+            break
+        except AssertionError:
+            if time.time() > deadline:
+                raise
+    await asyncio.gather(*(pool.post(request42) for i in "1234"))
+
+
+async def test_resize_bad_size(ok_server, pool):
+    with pytest.raises(ValueError):
+        pool.resize(0)
+
+
+async def test_pool_state(ok_server, pool, request42):
+    assert pool.state == "active"
+    assert not pool.buffered
+    assert not pool.inflight
+    assert not pool.pending
+    assert not pool.completed
+    assert not pool.errors
+
+    await pool.post(request42)
+    assert not pool.buffered
+    assert not pool.inflight
+    assert not pool.pending
+    assert pool.completed == 1
+    assert not pool.errors
