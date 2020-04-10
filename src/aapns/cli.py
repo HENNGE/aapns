@@ -37,7 +37,7 @@ async def do_send(context: Context, notification: models.Notification) -> Option
     client = await create_client(
         context.cert,
         context.server,
-        **{"cafile": ".test-server-certificate.pem"}
+        **{"cafile": "tests/functional/test-server-certificate.pem"}
         if context.server.host == "localhost"
         else {},
     )

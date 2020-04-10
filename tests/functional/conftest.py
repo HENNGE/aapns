@@ -84,9 +84,10 @@ async def terminating_server():
 @pytest.fixture
 def ssl_context():
     ctx = create_ssl_context()
-    ctx.load_verify_locations(cafile=".test-server-certificate.pem")
+    ctx.load_verify_locations(cafile="tests/functional/test-server-certificate.pem")
     ctx.load_cert_chain(
-        certfile=".test-client-certificate.pem", keyfile=".test-client-certificate.pem"
+        certfile="tests/functional/test-client-certificate.pem",
+        keyfile="tests/functional/test-client-certificate.pem",
     )
     return ctx
 
@@ -111,9 +112,9 @@ async def pool(ssl_context):
 @pytest.fixture
 async def client():
     client = await aapns.api.create_client(
-        ".test-client-certificate.pem",
+        "tests/functional/test-client-certificate.pem",
         aapns.config.Server("localhost", 2197),
-        cafile=".test-server-certificate.pem",
+        cafile="tests/functional/test-server-certificate.pem",
     )
     yield client
     await client.close()

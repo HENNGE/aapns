@@ -36,11 +36,10 @@ async def test_bad_token(bad_token_server, client, notification):
 
 
 async def test_closing_client(ok_server, ssl_context, notification):
-    # FIXME
     c = await aapns.api.create_client(
-        ".test-client-certificate.pem",
+        "tests/functional/test-client-certificate.pem",
         aapns.config.Server("localhost", 2197),
-        cafile=".test-server-certificate.pem",
+        cafile="tests/functional/test-server-certificate.pem",
     )
     try:
         task = asyncio.create_task(c.send_notification("42", notification))

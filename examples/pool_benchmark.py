@@ -46,9 +46,12 @@ async def many_requests(count):
     mon = create_task(monitor())
 
     ssl_context = create_ssl_context()
-    ssl_context.load_verify_locations(cafile=".test-server-certificate.pem")
+    ssl_context.load_verify_locations(
+        cafile="tests/functional/test-server-certificate.pem"
+    )
     ssl_context.load_cert_chain(
-        certfile=".test-client-certificate.pem", keyfile=".test-client-certificate.pem"
+        certfile="tests/functional/test-client-certificate.pem",
+        keyfile="tests/functional/test-client-certificate.pem",
     )
 
     try:
