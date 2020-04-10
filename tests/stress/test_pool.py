@@ -4,6 +4,7 @@
     * Closed('Server closed the connection')
 """
 import asyncio
+import itertools
 import logging
 import time
 
@@ -67,3 +68,28 @@ async def test_termination(terminating_server, pool, request42):
         await pool.post(request42)
         request42.deadline = time.time() + 1
         await pool.post(request42)
+
+
+async def test_performance(ok_server, pool, request42):
+    """Expected run time is ~3s for 2000 requests, max here is 10."""
+    rv = await asyncio.wait_for(
+        asyncio.gather(*(pool.post(request42) for i in range(2000))), 10
+    )
+    for response in rv:
+        assert response.code == 200
+
+
+async def test_resize(ok_server, pool, request42):
+    await pool.post(request42)
+    assert len(pool.active) == 2
+    pool.resize(4)
+    deadline = time.time() + 1
+    for i in itertools.count(-3, 0.5):
+        await asyncio.sleep(10 ** i)
+        try:
+            assert len(pool.active) == 4
+            break
+        except AssertionError:
+            if time.time() > deadline:
+                raise
+    await asyncio.gather(*(pool.post(request42) for i in "1234"))

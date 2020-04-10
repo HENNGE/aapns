@@ -435,8 +435,8 @@ class Request:
             (header or {}).items()
         )
 
-        body = json.dumps(data, ensure_ascii=False).encode("utf-8")
-        return cls(request_header, body, deadline, deadline_source)
+        text = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
+        return cls(request_header, text.encode("utf-8"), deadline, deadline_source)
 
 
 @dataclass
