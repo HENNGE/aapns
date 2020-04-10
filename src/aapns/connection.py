@@ -414,7 +414,7 @@ class Request:
     def new(
         cls,
         path: str,
-        header: Optional[dict],
+        header: Dict[str, str],
         data: dict,
         timeout: Optional[float] = 10,
         deadline: Optional[float] = None,
@@ -437,7 +437,7 @@ class Request:
             (":method", "POST"),
             (":scheme", "https"),
             (":path", path),
-            *(header or {}).items(),
+            *header.items(),
         )
 
         text = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
