@@ -241,7 +241,7 @@ class Pool:
         for connection in active:
             if self.closing:
                 raise Closed(self.outcome)
-            if connection.closed:
+            if connection.closing or connection.closed:
                 continue
             try:
                 return await connection.post(request)
