@@ -171,10 +171,7 @@ class Pool:
             self.outcome = connection.outcome
 
     async def maintain(self):
-        while True:
-            if self.closing or self.closed:
-                return
-
+        while not self.closing and not self.closed:
             for connection in list(self.active):
                 if connection.closing:
                     self.active.remove(connection)
