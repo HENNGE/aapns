@@ -1,4 +1,5 @@
 import logging
+import shutil
 from asyncio import CancelledError, create_subprocess_exec, create_task, gather, sleep
 from asyncio.subprocess import PIPE
 from contextlib import asynccontextmanager, suppress
@@ -24,6 +25,8 @@ async def collect(stream, name, output=[]):
 
 @asynccontextmanager
 async def server_factory(flavour):
+    if not shutil.which("go"):
+        pytest.skip("Functional tests use a go server")
     server = await create_subprocess_exec(
         "go",
         "run",
