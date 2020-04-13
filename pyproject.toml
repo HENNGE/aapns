@@ -5,14 +5,24 @@ description = "Asynchronous Apple Push Notification Service Client"
 authors = ["Jonas Obrist <jonas.obrist@hennge.com>", "Dima Tisnek <dimaqq@gmail.com>"]
 license = "Apache-2.0"
 repository = "https://github.com/hennge/aapns"
+documentation = "https://aapns.readthedocs.io"
+readme = "README.md"
+homepage = "https://github.com/HENNGE/aapns"
+keywords = ["push-notification", "apple", "ios", "asyncio"]
 classifiers = [
   "Development Status :: 5 - Production/Stable",
-  "Framework :: AsyncIO",
+  "Topic :: Communication",
   "Intended Audience :: Developers",
-  "License :: OSI Approved :: Apache Software License",
   "Programming Language :: Python :: 3.8",
   "Programming Language :: Python :: 3.9",
   "Programming Language :: Python :: 3 :: Only",
+  "Typing :: Typed",
+  "Framework :: AsyncIO",
+  "Operating System :: POSIX",
+  "Operating System :: POSIX :: Linux",
+  "Operating System :: MacOS :: MacOS X",
+  "Operating System :: OS Independent",
+  "License :: OSI Approved :: Apache Software License",
 ]
 
 [tool.poetry.dependencies]
