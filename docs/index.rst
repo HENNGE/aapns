@@ -12,6 +12,7 @@ Welcome to AAPNS's documentation!
 
     installation
     usage
+    extended_usage
     api
 
 
