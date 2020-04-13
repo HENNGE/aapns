@@ -5,9 +5,10 @@
 
 Asynchronous Apple Push Notification Service client.
 
+* Requires TLS 1.2 or better
+* Requires Python 3.8 or better
 
 ## Quickstart
-
 
 ```python
 from aapns.api import create_client

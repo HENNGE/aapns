@@ -1,22 +1,38 @@
-from typing import Any, Dict, Type
+from typing import Any, Dict, Optional, Type
 
 
 class APNSError(Exception):
     pass
 
 
-class Disconnected(APNSError):
-    pass
+class Blocked(APNSError):
+    """This connection can't send more data at this point, can try later."""
 
 
-class StreamResetError(APNSError):
+class Closed(APNSError):
+    """This connection is now closed, try another."""
+
+
+class Timeout(APNSError):
+    """The request deadline has passed."""
+
+
+class FormatError(APNSError):
+    """Response was weird."""
+
+
+class ResponseTooLarge(APNSError):
+    """Server response was larger than allowed."""
+
+
+class StreamReset(APNSError):
     pass
 
 
 class ResponseError(APNSError):
     codename: str
 
-    def __init__(self, reason: str, apns_id: str):
+    def __init__(self, reason: str, apns_id: Optional[str]):
         self.reason = reason
         self.apns_id = apns_id
         super().__init__(reason)
@@ -64,5 +80,5 @@ ServiceUnavailable = create("ServiceUnavailable")
 Shutdown = create("Shutdown")
 
 
-def get(reason: Any, apns_id: str) -> ResponseError:
+def get(reason: Any, apns_id: Optional[str]) -> ResponseError:
     return CODES.get(reason, UnknownResponseError)(reason, apns_id)

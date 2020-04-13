@@ -1,16 +1,22 @@
 import asyncio
+import logging
 from asyncio import get_event_loop
-from typing import Dict
+from typing import Dict, Optional
 
 import attr
 import click
+
 from aapns import config, models
 from aapns.api import create_client
-from structlog import get_logger
 
 SERVERS: Dict[bool, Dict[bool, config.Server]] = {
     True: {True: config.ProductionAltPort, False: config.Production},
     False: {True: config.DevelopmentAltPort, False: config.Development},
+}
+
+LOCAL_SERVERS: Dict[bool, config.Server] = {
+    False: config.Server("localhost", 443),
+    True: config.Server("localhost", 2197),
 }
 
 
@@ -27,9 +33,13 @@ class Context:
     verbose = attr.ib()
 
 
-async def do_send(context: Context, notification: models.Notification) -> str:
+async def do_send(context: Context, notification: models.Notification) -> Optional[str]:
     client = await create_client(
-        context.cert, context.server, logger=get_logger() if context.verbose else None
+        context.cert,
+        context.server,
+        **{"cafile": "tests/functional/test-server-certificate.pem"}
+        if context.server.host == "localhost"
+        else {},
     )
     try:
         resp_id = await client.send_notification(
@@ -62,6 +72,7 @@ def send(context: Context, notification: models.Notification):
 @click.option("--collapse-id", default=None)
 @click.option("--apns-id", default=None)
 @click.option("--verbose", is_flag=True, default=False)
+@click.option("--local", is_flag=True, default=False)
 @click.pass_context
 def main(
     ctx,
@@ -75,11 +86,13 @@ def main(
     collapse_id,
     apns_id,
     verbose,
+    local,
 ):
+    logging.basicConfig(level=logging.DEBUG if verbose else logging.INFO)
     ctx.obj = Context(
         token=token,
         cert=client_cert_path,
-        server=SERVERS[prod][alt_port],
+        server=LOCAL_SERVERS[alt_port] if local else SERVERS[prod][alt_port],
         expiration=expiration,
         priority=config.Priority.immediately if immediately else config.Priority.normal,
         topic=topic,
@@ -94,8 +107,11 @@ def main(
 @click.option("--title", default=None)
 @click.pass_context
 def simple(ctx, title, body):
-    notification = models.Notification(alert=models.Alert(title=title, body=body))
-    send(ctx.obj, notification)
+    try:
+        notification = models.Notification(alert=models.Alert(title=title, body=body))
+        send(ctx.obj, notification)
+    except Exception:
+        logging.exception("Simple notification")
 
 
 @main.command("localized")
@@ -106,11 +122,14 @@ def simple(ctx, title, body):
 @click.option("--badge", type=click.INT)
 @click.pass_context
 def localized(ctx, title, body, title_args, body_args, badge):
-    notification = models.Notification(
-        alert=models.Alert(
-            body=models.Localized(body, list(body_args)),
-            title=models.Localized(title, list(title_args)) if title else title,
-        ),
-        badge=badge,
-    )
-    send(ctx.obj, notification)
+    try:
+        notification = models.Notification(
+            alert=models.Alert(
+                body=models.Localized(body, list(body_args)),
+                title=models.Localized(title, list(title_args)) if title else title,
+            ),
+            badge=badge,
+        )
+        send(ctx.obj, notification)
+    except Exception:
+        logging.exception("Localised notification")
