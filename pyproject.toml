@@ -11,7 +11,7 @@ homepage = "https://github.com/HENNGE/aapns"
 keywords = ["push-notification", "apple", "ios", "asyncio"]
 classifiers = [
   "Development Status :: 5 - Production/Stable",
-  "Topic :: Communication",
+  "Topic :: Communications",
   "Intended Audience :: Developers",
   "Programming Language :: Python :: 3.8",
   "Programming Language :: Python :: 3.9",
