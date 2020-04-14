@@ -410,7 +410,7 @@ class Request:
         """Raises Timeout() if the request has timed out, or return remaining time"""
         if (remaining := self.deadline - time()) > 0:
             return remaining
-        raise Timeout("Request timed out: %s", self.deadline_source)
+        raise Timeout("Request timed out: %s" % self.deadline_source)
 
     @classmethod
     def new(
