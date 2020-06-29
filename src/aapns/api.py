@@ -12,6 +12,11 @@ from .pool import Pool, Request, create_ssl_context
 
 
 class APNSBaseClient(metaclass=abc.ABCMeta):
+    """
+    Abstract base class defining the APIs a Client implementation must
+    provide.
+    """
+
     @abc.abstractmethod
     async def send_notification(
         self,
@@ -24,13 +29,25 @@ class APNSBaseClient(metaclass=abc.ABCMeta):
         topic: Optional[str] = None,
         collapse_id: Optional[str] = None,
     ) -> Optional[str]:
+        """
+        Send the notification to the device identified by the token.
+        For details about the parameters, refer to Appls APNS documentation.
+        """
         pass
 
     async def close(self):
+        """
+        Close the client. This coroutine should only be called once and
+        the client cannot be used anymore afterwards.
+        """
         pass
 
 
 class Target(metaclass=abc.ABCMeta):
+    """
+    Abstract base class defining the API a Target must implement.
+    """
+
     @abc.abstractmethod
     async def create_client(self) -> APNSBaseClient:
         pass
@@ -38,6 +55,16 @@ class Target(metaclass=abc.ABCMeta):
 
 @dataclass(frozen=True)
 class Server(Target):
+    """
+    Target to talk to APNS Servers. Most use cases are covered by the convenience
+    classmethods provided, so instantiating this class directly is rarely required.
+
+    If you wish to create a custom instance of this class, you must provide the path
+    to the client certificate to use as a string, the hostname of the server as a string,
+    the port of hte server as an integer, and optionally the path to a root certificate to
+    trust for TLS and the desired connection pool size.
+    """
+
     client_cert_path: str
     host: str
     port: int = config.DEFAULT_PORT
@@ -56,23 +83,42 @@ class Server(Target):
 
     @classmethod
     def production(cls, client_cert_path: str) -> Server:
+        """
+        Returns the server configured to connect to production APNS.
+        """
         return cls(client_cert_path=client_cert_path, host=config.PRODUCTION_HOST)
 
     @classmethod
     def production_alt_port(cls, client_cert_path: str) -> Server:
+        """
+        Returns the server configured to connect to production APNS using the
+        alternative port.
+        """
         return replace(cls.production(client_cert_path), port=config.ALT_PORT)
 
     @classmethod
     def development(cls, client_cert_path: str) -> Server:
+        """
+        Returns the server configured to connect to development APNS.
+        """
         return cls(client_cert_path=client_cert_path, host=config.SANDBOX_HOST)
 
     @classmethod
     def development_alt_port(cls, client_cert_path: str) -> Server:
-        return replace(cls.production(client_cert_path), port=config.ALT_PORT)
+        """
+        Returns the server configured to connect to development APNS using the
+        alternative port.
+        """
+        return replace(cls.development(client_cert_path), port=config.ALT_PORT)
 
 
 @dataclass(frozen=True)
 class Simulator(Target, APNSBaseClient):
+    """
+    Target to talk to a local simulator. Provide the device ID of your simulator
+    and the app ID of your app as arguments.
+    """
+
     device_id: str
     app_id: str
 

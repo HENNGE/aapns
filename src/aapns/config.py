@@ -2,6 +2,10 @@ from enum import Enum
 
 
 class Priority(Enum):
+    """
+    Enum defining the priority of the notification
+    """
+
     immediately = 10
     normal = 5
 

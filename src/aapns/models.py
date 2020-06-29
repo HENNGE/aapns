@@ -7,6 +7,10 @@ import attr
 
 @attr.s
 class Localized:
+    """
+    Represents a localized string to be used for the body or title of an :py:class:`Alert`.
+    """
+
     key: str = attr.ib(validator=attr.validators.instance_of(str))
     args: Optional[List[str]] = attr.ib(
         default=None,
@@ -36,6 +40,10 @@ def maybe_localized(
 
 @attr.s
 class Alert:
+    """
+    Represents an alert, which can be used in :py:class:`Notification`.
+    """
+
     body: Union[str, Localized] = attr.ib(
         validator=attr.validators.instance_of((str, Localized))
     )
@@ -71,12 +79,21 @@ class Alert:
 
 @unique
 class PushType(Enum):
+    """
+    Enum holding possible types of push notifications
+    """
+
     alert = "alert"
     background = "background"
 
 
 @attr.s
 class Notification:
+    """
+    Represents a notification to send. For details on the parameters, please
+    refer to the Apple APNS documentation.
+    """
+
     alert: Alert = attr.ib(validator=attr.validators.instance_of(Alert))
     push_type: PushType = attr.ib(
         default=PushType.alert, validator=attr.validators.instance_of(PushType)
