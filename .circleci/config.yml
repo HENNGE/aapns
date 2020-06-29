@@ -11,7 +11,7 @@ commands:
             wget https://raw.githubusercontent.com/sdispater/poetry/master/get-poetry.py
       - run:
           name: Install Poetry
-          command: POETRY_PREVIEW=1 python get-poetry.py  --yes
+          command: python get-poetry.py  --yes
       - run:
           name: Run Poetry Install
           command: ~/.poetry/bin/poetry install
