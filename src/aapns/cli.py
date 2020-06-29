@@ -5,7 +5,7 @@ from typing import Optional
 
 import click
 from aapns import config, models
-from aapns.api import Server, Target
+from aapns.api import Server, Simulator, Target
 
 ORIGINS = {
     "prod": config.PRODUCTION_HOST,
@@ -49,7 +49,14 @@ def send(context: Context, notification: models.Notification):
 
 
 @click.group()
+def main():
+    pass
+
+
+@main.command()
 @click.argument("token")
+@click.argument("body")
+@click.option("--title", default=None)
 @click.option("--client-cert-path", envvar="CLIENT_CERT_PATH")
 @click.option("--server", choices=["prod", "sandbox", "local"], default="sandbox")
 @click.option("--alt-port", is_flag=True, default=False)
@@ -60,8 +67,9 @@ def send(context: Context, notification: models.Notification):
 @click.option("--apns-id", default=None)
 @click.option("--verbose", is_flag=True, default=False)
 @click.pass_context
-def main(
-    ctx,
+def server(
+    title,
+    body,
     token,
     client_cert_path,
     server,
@@ -81,7 +89,7 @@ def main(
     if server == "local":
         target = replace(target, ca_file="tests/functional/test-server-certificate.pem")
     logging.basicConfig(level=logging.DEBUG if verbose else logging.INFO)
-    ctx.obj = Context(
+    context = Context(
         token=token,
         target=target,
         expiration=expiration,
@@ -91,36 +99,51 @@ def main(
         apns_id=apns_id,
         verbose=verbose,
     )
-
-
-@main.command("simple")
-@click.argument("body")
-@click.option("--title", default=None)
-@click.pass_context
-def simple(ctx, title, body):
     try:
         notification = models.Notification(alert=models.Alert(title=title, body=body))
-        send(ctx.obj, notification)
+        send(context, notification)
     except Exception:
         logging.exception("Simple notification")
 
 
-@main.command("localized")
+@main.command()
+@click.argument("device_id")
+@click.argument("app_id")
 @click.argument("body")
-@click.option("--body-args", multiple=True)
 @click.option("--title", default=None)
-@click.option("--title-args", multiple=True)
-@click.option("--badge", type=click.INT)
+@click.option("--expiration", default=None, type=click.INT)
+@click.option("--immediately", is_flag=True, default=False)
+@click.option("--topic", default=None)
+@click.option("--collapse-id", default=None)
+@click.option("--apns-id", default=None)
+@click.option("--verbose", is_flag=True, default=False)
 @click.pass_context
-def localized(ctx, title, body, title_args, body_args, badge):
+def simulator(
+    device_id,
+    app_id,
+    title,
+    body,
+    expiration,
+    immediately,
+    topic,
+    collapse_id,
+    apns_id,
+    verbose,
+):
+    target = Simulator(device_id, app_id,)
+    logging.basicConfig(level=logging.DEBUG if verbose else logging.INFO)
+    context = Context(
+        token="cli",
+        target=target,
+        expiration=expiration,
+        priority=config.Priority.immediately if immediately else config.Priority.normal,
+        topic=topic,
+        collapse_id=collapse_id,
+        apns_id=apns_id,
+        verbose=verbose,
+    )
     try:
-        notification = models.Notification(
-            alert=models.Alert(
-                body=models.Localized(body, list(body_args)),
-                title=models.Localized(title, list(title_args)) if title else title,
-            ),
-            badge=badge,
-        )
-        send(ctx.obj, notification)
+        notification = models.Notification(alert=models.Alert(title=title, body=body))
+        send(context, notification)
     except Exception:
-        logging.exception("Localised notification")
+        logging.exception("Simple notification")
