@@ -53,6 +53,12 @@ class Alert:
             attr.validators.instance_of((str, Localized))
         ),
     )
+    subtitle: Optional[Union[str, Localized]] = attr.ib(
+        default=None,
+        validator=attr.validators.optional(
+            attr.validators.instance_of((str, Localized))
+        ),
+    )
     action_loc_key: Optional[str] = attr.ib(
         default=None,
         validator=attr.validators.optional(attr.validators.instance_of(str)),
@@ -68,6 +74,12 @@ class Alert:
         if self.title:
             alert.update(
                 maybe_localized(self.title, "title", "title-loc-key", "title-loc-args")
+            )
+        if self.subtitle:
+            alert.update(
+                maybe_localized(
+                    self.subtitle, "subtitle", "subtitle-loc-key", "subtitle-loc-args"
+                )
             )
         alert.update(maybe_localized(self.body, "body", "loc-key", "loc-args"))
         if self.action_loc_key:
@@ -117,6 +129,13 @@ class Notification:
         default=None,
         validator=attr.validators.optional(attr.validators.instance_of(str)),
     )
+    mutable_content: bool = attr.ib(
+        default=False, validator=attr.validators.instance_of(bool)
+    )
+    target_content_id: Optional[str] = attr.ib(
+        default=None,
+        validator=attr.validators.optional(attr.validators.instance_of(str)),
+    )
     extra: Optional[Dict[str, Any]] = attr.ib(
         default=None,
         validator=attr.validators.optional(
@@ -141,6 +160,10 @@ class Notification:
             apns["category"] = self.category
         if self.thread_id:
             apns["thread-id"] = self.thread_id
+        if self.mutable_content:
+            apns["mutable-content"] = 1
+        if self.target_content_id:
+            apns["target-content-id"] = self.target_content_id
         raw = {"aps": apns}
         if self.extra:
             raw.update(self.extra)
