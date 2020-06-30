@@ -4,6 +4,7 @@ import abc
 import asyncio
 import os
 from dataclasses import dataclass, replace
+from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Optional
 
@@ -137,9 +138,8 @@ class Simulator(Target, APNSBaseClient):
         collapse_id: Optional[str] = None,
     ) -> Optional[str]:
         with TemporaryDirectory() as workspace:
-            path = os.path.join(workspace, "notification.apns")
-            with open(path, "wb") as fobj:
-                fobj.write(notification.encode())
+            path = Path(workspace) / "notification.apns"
+            path.write_bytes(notification.encode())
 
             process = await asyncio.create_subprocess_exec(
                 "xcrun", "simctl", "push", self.device_id, self.app_id, path,

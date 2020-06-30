@@ -5,7 +5,7 @@ repos:
   - id: black
     language_version: python3.7
 - repo: https://github.com/timothycrosley/isort
-  rev: 4.3.21
+  rev: 4.3.21-2
   hooks:
   - id: isort
     language: python_venv
