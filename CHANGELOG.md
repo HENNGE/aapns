@@ -1,5 +1,11 @@
 # Changelog
 
+## 20.6
+
+* Incompatible change to how clients are created. Please refer to the documentation.
+* Incompatible change to the command line interface to allow targeting simulators.
+* Added support to send notifications to simulators.
+
 ## 20.4
 
 * Significantly more robust

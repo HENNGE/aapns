@@ -1,93 +1,25 @@
 API Reference
 =============
 
-
 ``aapns.api``
 -------------
 
+.. automodule:: aapns.api
+    :members:
 
-.. py:module:: aapns.api
 
-.. py:function:: create_client(client_cert_path, server, *, cafile=None)
+``aapns.models``
+----------------
 
-    This is a coroutine. Creates an APNS client.
-
-    :param str client_cert_path: Path to the client certificate to authenticate with
-    :param server: Server to connect to
-    :type server: :py:class:`aapns.config.Server`
-    :param srt cafile: Optional file path to server CA bundle
-    :return: An instance of :py:class:`APNS`
-    :rtype: :py:class:`APNS`
-
-.. py:class:: APNS
-
-    Main API of aapns. You should not instantiate it directly but rather use :py:func:`create_client` instead.
-
-    .. py:method:: send_notification(token, notification, *, apns_id=None, expiration=None, priority=Priority.normal, topic=None, collapse_id=None):
-
-        This is a coroutine.
-
-        Send a notification to the device registered for the given token. Returns
-        the notification ID.
-
-        :param str token: Device token
-        :param notification: The notification to send
-        :type notification: :py:class:`aapns.models.Notification`
-        :param str apns_id: Optional notification ID. If none is provided, APNS creates one
-        :param int expiration: Optional unix timestamp when the notification should expire
-        :param priority: Priority to use for the notification. See :py:class:`aapns.config.Priority`
-        :type priority: :py:class:`aapns.config.Priority`
-        :param str topic: Optional topic to send the notification to. If your certificate is for more than one topic, you must specify this parameter
-        :param str collapse_id: Optional collapse id for this notification
-        :return: ID of the notification
-        :rtype: str
-        :raises aapns.errors.ResponseError: If there was a problem with the notification
-
-    .. py:method:: close
-
-        This is a coroutine. Cleans up the client and closes any open connections.
+.. automodule:: aapns.models
+    :members:
 
 
 ``aapns.config``
 ----------------
 
-.. py:module:: aapns.config
-
-
-.. py:class:: Server(host: str, port: int)
-
-    Class to configure the server to connect to, usually you do not need to
-    manually create an instance but can use one of the pre-created instances in
-    this module.
-
-.. py:data:: Production
-
-    Instance of :py:class:`Server` that points to the production APNS server.
-
-.. py:data:: ProductionAltPort
-
-    Same as :py:data:`Production` but uses the alternative port 2197.
-
-.. py:data:: Development
-
-    Instance of :py:class:`Server` that points to the testing APNS server.
-
-.. py:data:: DevelopmentAltPort
-
-    Same as :py:data:`Development` but uses the alternative port 2197.
-
-.. py:class:: Priority
-
-    An Enum to specify notification priority. Refer to Apples APNS documentation
-    for what these values mean exactly.
-
-    .. py:attribute:: immediately
-
-        To send a notification immediately.
-
-    .. py:attribute:: normal
-
-        To send a notification with normal priority.
+.. automodule:: aapns.config
+    :members:
 
 
 ``aapns.errors``
@@ -167,53 +99,3 @@ API Reference
 .. py:exception:: ServiceUnavailable
 .. py:exception:: Shutdown
 .. py:exception:: UnkownResponseError
-
-
-``aapns.models``
-----------------
-
-.. py:module:: aapns.models
-
-.. py:class:: Notification(alert, push_type=PushType.alert, badge=None, sound=None, content_available=False, category=None, thread_id=None, extra=None)
-
-    Represents a notification to send. For details on the parameters, please
-    refer to the Apple APNS documentation.
-
-    :param alert: Alert to send
-    :type alert: :py:class:`Alert`
-    :param push_type: Type of push notification
-    :type push_type: :py:class:`PushType`
-    :param int badge: Optional badge number to set
-    :param str sound: Optional path to sound file
-    :param bool content_available: Optional flag to indicate there is content available
-    :param str category: Optional category of this notification
-    :param str thread_id: Optional thread ID of this notification
-    :param extra: Optional dictionary holding app specific extra data to send with the notification
-    :type extra: dict[str, str]
-
-.. py:class:: Alert(body, title=None, action_loc_key=None, launch_image=None)
-
-    Represents an alert, which can be used in :py:class:`Notification`.
-
-    :param body: Body of the alert
-    :type body: str or :py:class:`Localized`
-    :param title: Optional title of the alert
-    :type title: str or :py:class:`Localized`
-    :param str action_loc_key: Optional localization key to use for the action button of the alert
-    :param str launch_image: Optional path to the launch image to use for the alert
-
-
-.. py:class:: PushType
-
-    Enum holding possible types of push notifications
-
-    .. py:attribute:: alert
-    .. py:attribute:: background
-
-.. py:class:: Localized(key, args=None)
-
-    Represents a localized string to be used for the body or title of an :py:class:`Alert`.
-
-    :param str key: Localization key
-    :param args: Optional list of localization arguments
-    :type args: list[str]

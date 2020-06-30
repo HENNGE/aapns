@@ -11,12 +11,12 @@ Asynchronous Apple Push Notification Service client.
 ## Quickstart
 
 ```python
-from aapns.api import create_client
-from aapns.config import Priority, Production
+from aapns.api import Server
+from aapns.config import Priority
 from aapns.models import Notification, Alert, Localized
 
 async def send_hello_world():
-    client = await create_client('/path/to/push/cert.pem', Production)
+    client = await Server.production('/path/to/push/cert.pem').create_client()
     apns_id = await client.send_notification(
         'my-device-token',
         Notification(

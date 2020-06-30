@@ -2,10 +2,10 @@ import asyncio
 import logging
 import time
 
-import pytest
-
 import aapns.connection
 import aapns.errors
+import pytest
+from aapns.api import Server
 
 pytestmark = pytest.mark.asyncio
 
@@ -36,16 +36,17 @@ async def test_bad_token(bad_token_server, client, notification):
 
 
 async def test_closing_client(ok_server, ssl_context, notification):
-    c = await aapns.api.create_client(
+    client = await Server(
         "tests/functional/test-client-certificate.pem",
-        aapns.config.Server("localhost", 2197),
-        cafile="tests/functional/test-server-certificate.pem",
-    )
+        "localhost",
+        2197,
+        ca_file="tests/functional/test-server-certificate.pem",
+    ).create_client()
     try:
-        task = asyncio.create_task(c.send_notification("42", notification))
-        await asyncio.sleep(0.1)
+        task = asyncio.create_task(client.send_notification("42", notification))
+        await asyncio.sleep(0)
     finally:
-        await c.close()
+        await client.close()
 
     with pytest.raises(aapns.errors.Closed):
         await task

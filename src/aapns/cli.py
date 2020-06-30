@@ -1,46 +1,33 @@
 import asyncio
 import logging
-from asyncio import get_event_loop
-from typing import Dict, Optional
+from dataclasses import dataclass, replace
+from typing import Optional
 
-import attr
 import click
-
 from aapns import config, models
-from aapns.api import create_client
+from aapns.api import Server, Simulator, Target
 
-SERVERS: Dict[bool, Dict[bool, config.Server]] = {
-    True: {True: config.ProductionAltPort, False: config.Production},
-    False: {True: config.DevelopmentAltPort, False: config.Development},
-}
-
-LOCAL_SERVERS: Dict[bool, config.Server] = {
-    False: config.Server("localhost", 443),
-    True: config.Server("localhost", 2197),
+ORIGINS = {
+    "prod": config.PRODUCTION_HOST,
+    "sandbox": config.SANDBOX_HOST,
+    "local": "localhost",
 }
 
 
-@attr.s
+@dataclass(frozen=True)
 class Context:
-    token = attr.ib()
-    cert = attr.ib()
-    server = attr.ib()
-    apns_id = attr.ib()
-    expiration = attr.ib()
-    priority = attr.ib()
-    topic = attr.ib()
-    collapse_id = attr.ib()
-    verbose = attr.ib()
+    token: str
+    target: Target
+    apns_id: str
+    expiration: Optional[int]
+    priority: config.Priority
+    topic: Optional[str]
+    collapse_id: Optional[str]
+    verbose: bool
 
 
 async def do_send(context: Context, notification: models.Notification) -> Optional[str]:
-    client = await create_client(
-        context.cert,
-        context.server,
-        **{"cafile": "tests/functional/test-server-certificate.pem"}
-        if context.server.host == "localhost"
-        else {},
-    )
+    client = await context.target.create_client()
     try:
         resp_id = await client.send_notification(
             context.token,
@@ -62,23 +49,30 @@ def send(context: Context, notification: models.Notification):
 
 
 @click.group()
+def main():
+    pass
+
+
+@main.command()
 @click.argument("token")
+@click.argument("body")
+@click.option("--title", default=None)
 @click.option("--client-cert-path", envvar="CLIENT_CERT_PATH")
-@click.option("--prod", is_flag=True, default=False)
+@click.option("--server", choices=["prod", "sandbox", "local"], default="sandbox")
 @click.option("--alt-port", is_flag=True, default=False)
-@click.option("--expiration", default=None)
+@click.option("--expiration", default=None, type=click.INT)
 @click.option("--immediately", is_flag=True, default=False)
 @click.option("--topic", default=None)
 @click.option("--collapse-id", default=None)
 @click.option("--apns-id", default=None)
 @click.option("--verbose", is_flag=True, default=False)
-@click.option("--local", is_flag=True, default=False)
 @click.pass_context
-def main(
-    ctx,
+def server(
+    title,
+    body,
     token,
     client_cert_path,
-    prod,
+    server,
     alt_port,
     expiration,
     immediately,
@@ -86,13 +80,18 @@ def main(
     collapse_id,
     apns_id,
     verbose,
-    local,
 ):
+    target = Server(
+        client_cert_path,
+        ORIGINS[server],
+        config.ALT_PORT if alt_port else config.DEFAULT_PORT,
+    )
+    if server == "local":
+        target = replace(target, ca_file="tests/functional/test-server-certificate.pem")
     logging.basicConfig(level=logging.DEBUG if verbose else logging.INFO)
-    ctx.obj = Context(
+    context = Context(
         token=token,
-        cert=client_cert_path,
-        server=LOCAL_SERVERS[alt_port] if local else SERVERS[prod][alt_port],
+        target=target,
         expiration=expiration,
         priority=config.Priority.immediately if immediately else config.Priority.normal,
         topic=topic,
@@ -100,36 +99,51 @@ def main(
         apns_id=apns_id,
         verbose=verbose,
     )
-
-
-@main.command("simple")
-@click.argument("body")
-@click.option("--title", default=None)
-@click.pass_context
-def simple(ctx, title, body):
     try:
         notification = models.Notification(alert=models.Alert(title=title, body=body))
-        send(ctx.obj, notification)
+        send(context, notification)
     except Exception:
         logging.exception("Simple notification")
 
 
-@main.command("localized")
+@main.command()
+@click.argument("device_id")
+@click.argument("app_id")
 @click.argument("body")
-@click.option("--body-args", multiple=True)
 @click.option("--title", default=None)
-@click.option("--title-args", multiple=True)
-@click.option("--badge", type=click.INT)
+@click.option("--expiration", default=None, type=click.INT)
+@click.option("--immediately", is_flag=True, default=False)
+@click.option("--topic", default=None)
+@click.option("--collapse-id", default=None)
+@click.option("--apns-id", default=None)
+@click.option("--verbose", is_flag=True, default=False)
 @click.pass_context
-def localized(ctx, title, body, title_args, body_args, badge):
+def simulator(
+    device_id,
+    app_id,
+    title,
+    body,
+    expiration,
+    immediately,
+    topic,
+    collapse_id,
+    apns_id,
+    verbose,
+):
+    target = Simulator(device_id, app_id,)
+    logging.basicConfig(level=logging.DEBUG if verbose else logging.INFO)
+    context = Context(
+        token="cli",
+        target=target,
+        expiration=expiration,
+        priority=config.Priority.immediately if immediately else config.Priority.normal,
+        topic=topic,
+        collapse_id=collapse_id,
+        apns_id=apns_id,
+        verbose=verbose,
+    )
     try:
-        notification = models.Notification(
-            alert=models.Alert(
-                body=models.Localized(body, list(body_args)),
-                title=models.Localized(title, list(title_args)) if title else title,
-            ),
-            badge=badge,
-        )
-        send(ctx.obj, notification)
+        notification = models.Notification(alert=models.Alert(title=title, body=body))
+        send(context, notification)
     except Exception:
-        logging.exception("Localised notification")
+        logging.exception("Simple notification")
