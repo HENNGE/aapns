@@ -58,7 +58,9 @@ def main():
 @click.argument("body")
 @click.option("--title", default=None)
 @click.option("--client-cert-path", envvar="CLIENT_CERT_PATH")
-@click.option("--server", choices=["prod", "sandbox", "local"], default="sandbox")
+@click.option(
+    "--server", type=click.Choice(["prod", "sandbox", "local"]), default="sandbox"
+)
 @click.option("--alt-port", is_flag=True, default=False)
 @click.option("--expiration", default=None, type=click.INT)
 @click.option("--immediately", is_flag=True, default=False)
@@ -66,7 +68,6 @@ def main():
 @click.option("--collapse-id", default=None)
 @click.option("--apns-id", default=None)
 @click.option("--verbose", is_flag=True, default=False)
-@click.pass_context
 def server(
     title,
     body,
@@ -117,7 +118,6 @@ def server(
 @click.option("--collapse-id", default=None)
 @click.option("--apns-id", default=None)
 @click.option("--verbose", is_flag=True, default=False)
-@click.pass_context
 def simulator(
     device_id,
     app_id,
