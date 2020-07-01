@@ -1,5 +1,10 @@
 # Changelog
 
+## 20.7
+
+* Fixed development api host
+* Fixed cli
+
 ## 20.6
 
 * Incompatible change to how clients are created. Please refer to the documentation.
