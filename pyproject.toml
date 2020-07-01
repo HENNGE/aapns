@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "aapns"
-version = "20.6"
+version = "20.7"
 description = "Asynchronous Apple Push Notification Service Client"
 authors = ["Jonas Obrist <jonas.obrist@hennge.com>", "Dima Tisnek <dimaqq@gmail.com>"]
 license = "Apache-2.0"
