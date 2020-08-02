@@ -97,6 +97,10 @@ class PushType(Enum):
 
     alert = "alert"
     background = "background"
+    voip = "voip"
+    complication = "complication"
+    fileprovider = "fileprovider"
+    mdm = "mdm"
 
 
 @attr.s
