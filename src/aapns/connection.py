@@ -24,7 +24,6 @@ from .errors import Blocked, Closed, FormatError, ResponseTooLarge, StreamReset,
 # Apple limits APN payload (data) to 4KB or 5KB, depending.
 # Request header is not subject to flow control in HTTP/2
 # Data is subject to framing and padding, but those are minor.
-MAX_NOTIFICATION_PAYLOAD_SIZE = 5120
 REQUIRED_FREE_SPACE = 6000
 # OK response is empty
 # Error response is short json, ~30 bytes in size
@@ -162,9 +161,6 @@ class Connection:
 
     async def post(self, request: "Request") -> "Response":
         """Post the `request` on the connection"""
-        if len(request.body) > MAX_NOTIFICATION_PAYLOAD_SIZE:
-            raise ValueError("Request body is too large")
-
         request.get_time_left_or_fail()
         if self.closing or self.closed:
             raise Closed(self.outcome)
@@ -442,8 +438,10 @@ class Request:
             *header.items(),
         )
 
-        text = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
-        return cls(request_header, text.encode("utf-8"), deadline, deadline_source)
+        body = json.dumps(data, ensure_ascii=False, separators=(",", ":")).encode(
+            "utf-8"
+        )
+        return cls(request_header, body, deadline, deadline_source)
 
 
 @dataclass

@@ -2,13 +2,17 @@ from __future__ import annotations
 
 import abc
 import asyncio
-import os
 from dataclasses import dataclass, replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Optional
 
 from . import config, errors, models
+from .config import (
+    MAX_NOTIFICATION_PAYLOAD_SIZE_OTHER,
+    MAX_NOTIFICATION_PAYLOAD_SIZE_VOIP,
+)
+from .models import PushType
 from .pool import Pool, Request, create_ssl_context
 
 
@@ -166,7 +170,7 @@ class APNS(APNSBaseClient):
         collapse_id: Optional[str] = None,
     ) -> Optional[str]:
 
-        r = Request.new(
+        request = Request.new(
             path=f"/3/device/{token}",
             header={
                 "apns-priority": str(priority.value),
@@ -179,7 +183,24 @@ class APNS(APNSBaseClient):
             data=notification.get_dict(),
             timeout=10,
         )
-        response = await self.pool.post(r)
+        body_size = len(request.body)
+        if (
+            notification.push_type is PushType.voip
+            and body_size > MAX_NOTIFICATION_PAYLOAD_SIZE_VOIP
+        ):
+            raise ValueError(
+                f"Notification payload exceeds maximum payload size for voip "
+                f"notifications of {MAX_NOTIFICATION_PAYLOAD_SIZE_VOIP} bytes, "
+                f"it is {body_size} bytes"
+            )
+        elif body_size > MAX_NOTIFICATION_PAYLOAD_SIZE_OTHER:
+            raise ValueError(
+                f"Notification payload exceeds maximum payload size for non-voip "
+                f"notifications of {MAX_NOTIFICATION_PAYLOAD_SIZE_OTHER} bytes, "
+                f"it is {body_size} bytes"
+            )
+
+        response = await self.pool.post(request)
         if response.code != 200:
             raise errors.get(response.reason, response.apns_id)
         return response.apns_id
