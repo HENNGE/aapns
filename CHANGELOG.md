@@ -1,5 +1,9 @@
 # Changelog
 
+## 20.8.1
+
+* Fixed notification size check for different push types.
+
 ## 20.8
 
 * Added `voip`, `complication`, `fileprovider` and `mdm` push types.
