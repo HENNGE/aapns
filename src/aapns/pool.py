@@ -2,27 +2,26 @@ from __future__ import annotations
 
 import asyncio
 import ssl
-from asyncio import (
-    CancelledError,
-    Event,
-    TimeoutError,
-    create_task,
-    gather,
-    sleep,
-    wait_for,
-)
+from asyncio import CancelledError, TimeoutError, create_task, gather, sleep, wait_for
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass, field
 from itertools import count
 from logging import getLogger
 from random import shuffle
-from time import time
-from typing import Optional, Set
+from typing import Optional, Protocol, Set
 
 from .connection import Connection, Request, Response, create_ssl_context
-from .errors import Blocked, Closed, FormatError, ResponseTooLarge, Timeout
+from .errors import Blocked, Closed, Timeout
 
 logger = getLogger(__package__)
+
+
+class PoolProtocol(Protocol):
+    async def post(self, request: Request) -> Response:
+        ...
+
+    async def close(self):
+        ...
 
 
 @dataclass(eq=False)
