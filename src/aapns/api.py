@@ -13,7 +13,7 @@ from .config import (
     MAX_NOTIFICATION_PAYLOAD_SIZE_VOIP,
 )
 from .models import PushType
-from .pool import Pool, Request, create_ssl_context
+from .pool import Pool, PoolProtocol, Request, create_ssl_context
 
 
 class APNSBaseClient(metaclass=abc.ABCMeta):
@@ -156,7 +156,7 @@ class Simulator(Target, APNSBaseClient):
 
 @dataclass(frozen=True)
 class APNS(APNSBaseClient):
-    pool: Pool
+    pool: PoolProtocol
 
     async def send_notification(
         self,
@@ -184,15 +184,13 @@ class APNS(APNSBaseClient):
             timeout=10,
         )
         body_size = len(request.body)
-        if (
-            notification.push_type is PushType.voip
-            and body_size > MAX_NOTIFICATION_PAYLOAD_SIZE_VOIP
-        ):
-            raise ValueError(
-                f"Notification payload exceeds maximum payload size for voip "
-                f"notifications of {MAX_NOTIFICATION_PAYLOAD_SIZE_VOIP} bytes, "
-                f"it is {body_size} bytes"
-            )
+        if notification.push_type is PushType.voip:
+            if body_size > MAX_NOTIFICATION_PAYLOAD_SIZE_VOIP:
+                raise ValueError(
+                    f"Notification payload exceeds maximum payload size for voip "
+                    f"notifications of {MAX_NOTIFICATION_PAYLOAD_SIZE_VOIP} bytes, "
+                    f"it is {body_size} bytes"
+                )
         elif body_size > MAX_NOTIFICATION_PAYLOAD_SIZE_OTHER:
             raise ValueError(
                 f"Notification payload exceeds maximum payload size for non-voip "

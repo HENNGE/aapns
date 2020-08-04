@@ -3,10 +3,9 @@ import logging
 import re
 import time
 
-import pytest
-
 import aapns.connection
 import aapns.errors
+import pytest
 
 pytestmark = pytest.mark.asyncio
 
@@ -68,12 +67,6 @@ async def test_termination(terminating_server, connection, request42):
     with pytest.raises(aapns.errors.Closed, match=match):
         # terminating server may break the first request, and definitely breaks the second
         await connection.post(request42)
-        await connection.post(request42)
-
-
-async def test_request_too_large(ok_server, connection, request42):
-    request42.body = b'{"x": %s}' % (b"1" * 5120)
-    with pytest.raises(ValueError):
         await connection.post(request42)
 
 
