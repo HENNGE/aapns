@@ -1,5 +1,9 @@
 # Changelog
 
+## 20.8
+
+* Added `voip`, `complication`, `fileprovider` and `mdm` push types.
+
 ## 20.7
 
 * Fixed development api host
