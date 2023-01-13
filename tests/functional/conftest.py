@@ -10,6 +10,7 @@ import aapns.api
 import aapns.config
 import aapns.models
 import pytest
+import pytest_asyncio
 from aapns.connection import Connection, Request, create_ssl_context
 from aapns.pool import Pool
 
@@ -72,19 +73,19 @@ async def server_factory(flavour):
             await server.wait()
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def ok_server():
     async with server_factory("ok") as s:
         yield s
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def bad_token_server():
     async with server_factory("bad-token") as s:
         yield s
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def terminating_server():
     async with server_factory("terminates-connection") as s:
         yield s
@@ -106,19 +107,19 @@ def request42():
     return Request.new("/3/device/42", {}, {})
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def connection(ssl_context):
     yield (conn := await Connection.create("https://localhost:2197", ssl_context))
     await conn.close()
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def pool(ssl_context):
     yield (pool := await Pool.create("https://localhost:2197", 2, ssl_context))
     await pool.close()
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def client():
     client = await TARGET.create_client()
     yield client

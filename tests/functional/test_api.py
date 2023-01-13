@@ -10,7 +10,7 @@ from aapns.api import Server
 pytestmark = pytest.mark.asyncio
 
 
-async def test_seqential(ok_server, client, notification):
+async def test_sequential(ok_server, client, notification):
     for i in range(4):
         started = time.time()
         apns_id = await client.send_notification("42", notification)
