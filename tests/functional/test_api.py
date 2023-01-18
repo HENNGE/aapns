@@ -2,9 +2,10 @@ import asyncio
 import logging
 import time
 
+import pytest
+
 import aapns.connection
 import aapns.errors
-import pytest
 from aapns.api import Server
 
 pytestmark = pytest.mark.asyncio

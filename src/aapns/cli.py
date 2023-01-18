@@ -4,6 +4,7 @@ from dataclasses import dataclass, replace
 from typing import Optional
 
 import click
+
 from aapns import config, models
 from aapns.api import Server, Simulator, Target
 
@@ -130,7 +131,10 @@ def simulator(
     apns_id,
     verbose,
 ):
-    target = Simulator(device_id, app_id,)
+    target = Simulator(
+        device_id,
+        app_id,
+    )
     logging.basicConfig(level=logging.DEBUG if verbose else logging.INFO)
     context = Context(
         token="cli",

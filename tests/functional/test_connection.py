@@ -3,9 +3,10 @@ import logging
 import re
 import time
 
+import pytest
+
 import aapns.connection
 import aapns.errors
-import pytest
 
 pytestmark = pytest.mark.asyncio
 
@@ -56,10 +57,10 @@ async def test_closed_connection(ok_server, connection, request42):
 
 
 async def test_termination(terminating_server, connection, request42):
-    """ Observed connection outcomes, so far:
-        * Closed('ErrorCodes.NO_ERROR')
-        * Closed('[Errno 54] Connection reset by peer')
-        * Closed('Server closed the connection')
+    """Observed connection outcomes, so far:
+    * Closed('ErrorCodes.NO_ERROR')
+    * Closed('[Errno 54] Connection reset by peer')
+    * Closed('Server closed the connection')
     """
     match = re.compile(
         "ErrorCodes.NO_ERROR|Connection reset by peer|Server closed the connection"

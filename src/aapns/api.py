@@ -146,7 +146,12 @@ class Simulator(Target, APNSBaseClient):
             path.write_bytes(notification.encode())
 
             process = await asyncio.create_subprocess_exec(
-                "xcrun", "simctl", "push", self.device_id, self.app_id, path,
+                "xcrun",
+                "simctl",
+                "push",
+                self.device_id,
+                self.app_id,
+                path,
             )
             await process.communicate()
             if process.returncode != 0:

@@ -81,7 +81,7 @@ async def test_resize(ok_server, pool, request42):
     pool.resize(4)
     deadline = time.time() + 1
     for i in itertools.count(-3, 0.5):
-        await asyncio.sleep(10 ** i)
+        await asyncio.sleep(10**i)
         try:
             assert len(pool.active) == 4
             break
@@ -93,7 +93,7 @@ async def test_resize(ok_server, pool, request42):
     pool.resize(2)
     deadline = time.time() + 1
     for i in itertools.count(-3, 0.5):
-        await asyncio.sleep(10 ** i)
+        await asyncio.sleep(10**i)
         try:
             assert len(pool.active) == 2
             break
