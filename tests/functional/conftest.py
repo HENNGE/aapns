@@ -7,7 +7,6 @@ from os import killpg
 from signal import SIGTERM
 
 import pytest
-import pytest_asyncio
 
 import aapns.api
 import aapns.config
@@ -74,19 +73,19 @@ async def server_factory(flavour):
             await server.wait()
 
 
-@pytest_asyncio.fixture
+@pytest.fixture
 async def ok_server():
     async with server_factory("ok") as s:
         yield s
 
 
-@pytest_asyncio.fixture
+@pytest.fixture
 async def bad_token_server():
     async with server_factory("bad-token") as s:
         yield s
 
 
-@pytest_asyncio.fixture
+@pytest.fixture
 async def terminating_server():
     async with server_factory("terminates-connection") as s:
         yield s
@@ -108,19 +107,19 @@ def request42():
     return Request.new("/3/device/42", {}, {})
 
 
-@pytest_asyncio.fixture
+@pytest.fixture
 async def connection(ssl_context):
     yield (conn := await Connection.create("https://localhost:2197", ssl_context))
     await conn.close()
 
 
-@pytest_asyncio.fixture
+@pytest.fixture
 async def pool(ssl_context):
     yield (pool := await Pool.create("https://localhost:2197", 2, ssl_context))
     await pool.close()
 
 
-@pytest_asyncio.fixture
+@pytest.fixture
 async def client():
     client = await TARGET.create_client()
     yield client
