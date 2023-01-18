@@ -15,17 +15,30 @@ defaults:
     shell: bash
 
 env:
-  PYTHON_VERSIONS: ${{ toJSON(["3.8", "3.9", "3.10", "3.11"]) }}
+  PYTHON_VERSIONS: '["3.8", "3.9", "3.10", "3.11"]'
   PYTHON_VERSION_MIN: 3.8
   POETRY_VERSION: 1.3.1
 
 jobs:
+  python-versions:
+    # Workaround to set matrix values using env var,
+    # due to `jobs.<job_id>.strategy` not supporting `env` context:
+    # https://docs.github.com/en/actions/learn-github-actions/contexts#context-availability
+    name: Set supported python versions
+    runs-on: "ubuntu-latest"
+    outputs:
+      python-versions: ${{ steps.set-python-versions.outputs.python-versions }}
+    steps:
+      - id: set-python-versions
+        run: echo "python-versions=$PYTHON_VERSIONS" >> $GITHUB_OUTPUT
+
   poetry-lock:
     name: Generate and save poetry.lock
+    runs-on: "ubuntu-latest"
+    needs: python-versions
     strategy:
       matrix:
-        python-version: ${{ fromJSON(env.PYTHON_VERSIONS) }}
-    runs-on: "ubuntu-latest"
+        python-version: ${{ fromJSON(needs.python-versions.outputs.python-versions) }}
     steps:
       - uses: actions/checkout@v3
       - uses: actions/setup-python@v4
@@ -41,10 +54,10 @@ jobs:
   pytest:
     name: Run pytest
     runs-on: ubuntu-latest
-    needs: poetry-lock
+    needs: [python-versions, poetry-lock]
     strategy:
       matrix:
-        python-version: ${{ fromJSON(env.PYTHON_VERSIONS) }}
+        python-version: ${{ fromJSON(needs.python-versions.outputs.python-versions) }}
     steps:
       - uses: actions/checkout@v3
       - uses: actions/setup-go@v3 # Test requires go
@@ -63,10 +76,10 @@ jobs:
   mypy-pre-commit:
     name: Run mypy pre-commit
     runs-on: ubuntu-latest
-    needs: poetry-lock
+    needs: [python-versions, poetry-lock]
     strategy:
       matrix:
-        python-version: ${{ fromJSON(env.PYTHON_VERSIONS) }}
+        python-version: ${{ fromJSON(needs.python-versions.outputs.python-versions) }}
     steps:
       - uses: actions/checkout@v3
       - uses: actions/setup-python@v4
