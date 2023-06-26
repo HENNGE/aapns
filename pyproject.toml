@@ -42,6 +42,7 @@ mypy = "^1.4"
 black = "^23"
 isort = "^5"
 ruff = "0.0.275"
+aiohttp = "^3.8.4"
 
 [tool.poetry.extras]
 cli = ["click"]
