@@ -15,9 +15,9 @@ type Handler struct {
 
 func main() {
 	handler := &Handler{}
-	server := &http.Server{Addr: ":2197", Handler: handler}
+	server := &http.Server{Addr: "localhost:2197", Handler: handler}
 	handler.server = server
-	log.Printf("Serving on https://0.0.0.0:2197")
+	log.Printf("Serving on https://localhost:2197")
 	log.Fatal(server.ListenAndServeTLS("tests/functional/test-server-certificate.pem", "tests/functional/test-server-private-key.pem"))
 }
 

@@ -72,7 +72,7 @@ class Pool:
     async def post(self, request: "Request") -> "Response":
         """Post the `request` on a connection in this pool, with retries"""
         with self.count_requests():
-            for delay in (10 ** i for i in count(-3, 0.5)):
+            for delay in (10**i for i in count(-3, 0.5)):
                 if self.closing:
                     raise Closed(self.outcome)
 

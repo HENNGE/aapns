@@ -1,6 +1,6 @@
 import json
 from enum import Enum, unique
-from typing import *
+from typing import Any, Dict, List, Optional, Union
 
 import attr
 

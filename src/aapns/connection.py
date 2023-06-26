@@ -27,7 +27,7 @@ from .errors import Blocked, Closed, FormatError, ResponseTooLarge, StreamReset,
 REQUIRED_FREE_SPACE = 6000
 # OK response is empty
 # Error response is short json, ~30 bytes in size
-MAX_RESPONSE_SIZE = 2 ** 16
+MAX_RESPONSE_SIZE = 2**16
 # Inbound connection flow control window
 # It's quite arbitrary, guided by:
 # * concurrent requests limit, server limit being 1000 today
@@ -121,8 +121,8 @@ class Connection:
                 # MAX_FRAME_SIZE 16384
                 # MAX_HEADER_LIST_SIZE 8000
                 h2.settings.SettingCodes.ENABLE_PUSH: 0,
-                h2.settings.SettingCodes.MAX_CONCURRENT_STREAMS: 2 ** 20,
-                h2.settings.SettingCodes.MAX_HEADER_LIST_SIZE: 2 ** 16 - 1,
+                h2.settings.SettingCodes.MAX_CONCURRENT_STREAMS: 2**20,
+                h2.settings.SettingCodes.MAX_HEADER_LIST_SIZE: 2**16 - 1,
                 h2.settings.SettingCodes.INITIAL_WINDOW_SIZE: MAX_RESPONSE_SIZE,
             },
         )
@@ -289,7 +289,7 @@ class Connection:
     async def background_read(self):
         try:
             while not self.closed:
-                data = await self.read_stream.read(2 ** 16)
+                data = await self.read_stream.read(2**16)
                 if not data:
                     raise ConnectionError("Server closed the connection")
 

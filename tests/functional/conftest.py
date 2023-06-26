@@ -6,10 +6,11 @@ from contextlib import asynccontextmanager, suppress
 from os import killpg
 from signal import SIGTERM
 
+import pytest
+
 import aapns.api
 import aapns.config
 import aapns.models
-import pytest
 from aapns.connection import Connection, Request, create_ssl_context
 from aapns.pool import Pool
 
@@ -48,7 +49,7 @@ async def server_factory(flavour):
             create_task(collect(server.stderr, "server:stderr", output)),
         )
         try:
-            for delay in (2 ** i for i in range(-10, 3)):  # max 8s total
+            for delay in (2**i for i in range(-10, 3)):  # max 8s total
                 await sleep(delay)
                 if "exit status" in " ".join(output):
                     raise OSError(f"test server {flavour!r} crashed")

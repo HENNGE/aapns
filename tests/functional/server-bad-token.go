@@ -9,8 +9,8 @@ import (
 )
 
 func main() {
-	srv := &http.Server{Addr: ":2197", Handler: http.HandlerFunc(handle)}
-	log.Printf("Serving on https://0.0.0.0:2197")
+	srv := &http.Server{Addr: "localhost:2197", Handler: http.HandlerFunc(handle)}
+	log.Printf("Serving on https://localhost:2197")
 	log.Fatal(srv.ListenAndServeTLS("tests/functional/test-server-certificate.pem", "tests/functional/test-server-private-key.pem"))
 }
 
