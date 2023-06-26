@@ -56,6 +56,8 @@ async def server_factory(flavour):
                 if "Serving on" in " ".join(output):
                     break
             else:
+                print(server.stdout)
+                print(server.stderr)
                 raise TimeoutError(f"test server {flavour!r} did not come up")
             yield server
         finally:
