@@ -1,16 +1,15 @@
 import asyncio
-import logging
 import time
+
+import pytest
 
 import aapns.connection
 import aapns.errors
-import pytest
 from aapns.api import Server
 
-pytestmark = pytest.mark.asyncio
 
-
-async def test_seqential(ok_server, client, notification):
+@pytest.mark.server_flavor("ok")
+async def test_seqential(client, notification):
     for i in range(4):
         started = time.time()
         apns_id = await client.send_notification("42", notification)
@@ -19,7 +18,8 @@ async def test_seqential(ok_server, client, notification):
         assert 0.25 < took < 0.3, "Server has 1/4s artificial delay"
 
 
-async def test_parallel(ok_server, client, notification):
+@pytest.mark.server_flavor("ok")
+async def test_parallel(client, notification):
     started = time.time()
     apns_ids = await asyncio.gather(
         *(client.send_notification("42", notification) for i in range(4))
@@ -30,16 +30,18 @@ async def test_parallel(ok_server, client, notification):
     assert 0.25 < took < 0.3, "Server has 1/4s artificial delay"
 
 
-async def test_bad_token(bad_token_server, client, notification):
+@pytest.mark.server_flavor("bad-token")
+async def test_bad_token(client, notification):
     with pytest.raises(aapns.errors.BadDeviceToken):
         await client.send_notification("42", notification)
 
 
-async def test_closing_client(ok_server, ssl_context, notification):
+@pytest.mark.server_flavor("ok")
+async def test_closing_client(server_port, ssl_context, notification):
     client = await Server(
         "tests/functional/test-client-certificate.pem",
         "localhost",
-        2197,
+        server_port,
         ca_file="tests/functional/test-server-certificate.pem",
     ).create_client()
     try:
@@ -52,13 +54,15 @@ async def test_closing_client(ok_server, ssl_context, notification):
         await task
 
 
-async def test_closed_client(ok_server, client, notification):
+@pytest.mark.server_flavor("ok")
+async def test_closed_client(client, notification):
     await client.close()
     with pytest.raises(aapns.errors.Closed):
         await client.send_notification("42", notification)
 
 
-async def test_termination(terminating_server, client, notification):
+@pytest.mark.server_flavor("terminates-connection")
+async def test_termination(client, notification):
     with pytest.raises(aapns.errors.Timeout):
         # terminating server may break the first request, and definitely breaks the second
         await client.send_notification("42", notification)

@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from typing import Type
 
 import pytest
+
 from aapns.api import APNS
 from aapns.connection import Request, Response
 from aapns.models import Alert, Notification, PushType
