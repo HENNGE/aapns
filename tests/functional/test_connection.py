@@ -10,7 +10,8 @@ import aapns.errors
 pytestmark = pytest.mark.asyncio
 
 
-async def test_seqential(ok_server, connection, request42):
+@pytest.mark.server_flavor("ok")
+async def test_seqential(connection, request42):
     for i in range(4):
         started = time.time()
         response = await connection.post(request42)
@@ -20,7 +21,8 @@ async def test_seqential(ok_server, connection, request42):
         assert 0.25 < took < 0.3, "Server has 1/4s artificial delay"
 
 
-async def test_parallel(ok_server, connection, request42):
+@pytest.mark.server_flavor("ok")
+async def test_parallel(connection, request42):
     started = time.time()
     responses = await asyncio.gather(*(connection.post(request42) for i in range(4)))
     for r in responses:
@@ -30,15 +32,19 @@ async def test_parallel(ok_server, connection, request42):
     assert 0.25 < took < 0.3, "Server has 1/4s artificial delay"
 
 
-async def test_bad_token(bad_token_server, connection, request42):
+@pytest.mark.server_flavor("bad-token")
+async def test_bad_token(connection, request42):
     response = await connection.post(request42)
     assert response.code == 400
     assert response.apns_id
     assert response.data["reason"] == "BadDeviceToken"
 
 
-async def test_closing_connection(ok_server, ssl_context, request42):
-    c = await aapns.connection.Connection.create("https://localhost:2197", ssl_context)
+@pytest.mark.server_flavor("ok")
+async def test_closing_connection(server_port, ssl_context, request42):
+    c = await aapns.connection.Connection.create(
+        f"https://localhost:{server_port}", ssl_context
+    )
     try:
         task = asyncio.create_task(c.post(request42))
         await asyncio.sleep(0.1)
@@ -49,20 +55,23 @@ async def test_closing_connection(ok_server, ssl_context, request42):
         await task
 
 
-async def test_closed_connection(ok_server, connection, request42):
+@pytest.mark.server_flavor("ok")
+async def test_closed_connection(connection, request42):
     await connection.close()
     with pytest.raises(aapns.errors.Closed):
         await connection.post(request42)
 
 
-async def test_termination(terminating_server, connection, request42):
+@pytest.mark.server_flavor("terminates-connection")
+async def test_termination(connection, request42):
     """Observed connection outcomes, so far:
     * Closed('ErrorCodes.NO_ERROR')
     * Closed('[Errno 54] Connection reset by peer')
     * Closed('Server closed the connection')
+    * Closed('0') means ErrorCodes.NO_ERROR
     """
     match = re.compile(
-        "ErrorCodes.NO_ERROR|Connection reset by peer|Server closed the connection"
+        "ErrorCodes.NO_ERROR|Connection reset by peer|Server closed the connection|0"
     )
     with pytest.raises(aapns.errors.Closed, match=match):
         # terminating server may break the first request, and definitely breaks the second
@@ -70,5 +79,6 @@ async def test_termination(terminating_server, connection, request42):
         await connection.post(request42)
 
 
-async def test_connection_state(ok_server, connection):
+@pytest.mark.server_flavor("ok")
+async def test_connection_state(connection):
     assert connection.state == "active"
