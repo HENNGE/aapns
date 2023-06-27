@@ -33,6 +33,7 @@ class APNSBaseClient(metaclass=abc.ABCMeta):
         priority: config.Priority = config.Priority.normal,
         topic: Optional[str] = None,
         collapse_id: Optional[str] = None,
+        time_sensitive: bool = False,
     ) -> Optional[str]:
         """
         Send the notification to the device identified by the token.
@@ -140,6 +141,7 @@ class Simulator(Target, APNSBaseClient):
         priority: config.Priority = config.Priority.normal,
         topic: Optional[str] = None,
         collapse_id: Optional[str] = None,
+        time_sensitive: bool = False,
     ) -> Optional[str]:
         with TemporaryDirectory() as workspace:
             path = Path(workspace) / "notification.apns"
@@ -173,6 +175,7 @@ class APNS(APNSBaseClient):
         priority: config.Priority = config.Priority.normal,
         topic: Optional[str] = None,
         collapse_id: Optional[str] = None,
+        time_sensitive: bool = False,
     ) -> Optional[str]:
         request = Request.new(
             path=f"/3/device/{token}",
@@ -183,6 +186,7 @@ class APNS(APNSBaseClient):
                 **({"apns-expiration": str(expiration)} if expiration else {}),
                 **({"apns-topic": topic} if topic else {}),
                 **({"apns-collapse-id": collapse_id} if collapse_id else {}),
+                **({"interruption-level": "time-sensitive"} if time_sensitive else {}),
             },
             data=notification.get_dict(),
             timeout=10,
