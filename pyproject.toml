@@ -64,7 +64,6 @@ files = [
 ignore = [
     "E722", # Do not use bare `except`
     "E501", # Line too long (104 > 88 characters)
-#    "E731", # Do not assign a `lambda` expression, use a `def`
 ]
 select = [
     "E", "F", "T201", # Don't commit print statements
