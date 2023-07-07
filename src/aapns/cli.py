@@ -54,7 +54,7 @@ def main():
     pass
 
 
-@main.command()
+@main.command()  # type: ignore[arg-type, attr-defined]
 @click.argument("token")
 @click.argument("body")
 @click.option("--title", default=None)
@@ -108,7 +108,7 @@ def server(
         logging.exception("Simple notification")
 
 
-@main.command()
+@main.command()  # type: ignore[arg-type, attr-defined]
 @click.argument("device_id")
 @click.argument("app_id")
 @click.argument("body")
