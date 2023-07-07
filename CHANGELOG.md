@@ -1,5 +1,9 @@
 # Changelog
 
+## 23.7
+
+* Add support for time sensitive notifications.
+
 ## 20.8.1
 
 * Fixed notification size check for different push types.
