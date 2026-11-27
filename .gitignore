@@ -1,12 +1,5 @@
 .*
-/env/
-__pycache__
-*.egg-info
-/dist/
-/docs/_build/
-/build/
-/reports/
+/target/
 !.github
+!.gitignore
 !.pre-commit-config.yaml
-!.cafile
-poetry.lock

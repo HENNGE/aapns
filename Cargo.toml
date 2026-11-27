@@ -1,0 +1,67 @@
+[package]
+name = "aapns"
+version = "26.11.0"
+edition = "2024"
+rust-version = "1.85"
+description = "Asynchronous Apple Push Notification Service client"
+authors = [
+  "Jonas Obrist <jonas.obrist@hennge.com>",
+  "Dima Tisnek <dimaqq@gmail.com>",
+  "Muhammad Furqan Habibi <furqan.habibi@hennge.com>",
+]
+license = "Apache-2.0"
+repository = "https://github.com/HENNGE/aapns"
+homepage = "https://github.com/HENNGE/aapns"
+documentation = "https://docs.rs/aapns"
+readme = "README.md"
+keywords = ["push-notification", "apple", "ios", "apns", "async"]
+categories = ["network-programming", "asynchronous", "api-bindings"]
+exclude = [".github/", ".pre-commit-config.yaml"]
+
+[features]
+default = []
+# Command line client, `cargo install aapns --features cli`
+cli = ["dep:clap", "dep:tracing-subscriber", "tokio/rt-multi-thread"]
+
+[dependencies]
+bytes = "1.5"
+h2 = "0.4.6"
+http = "1.1"
+rustls = { version = "0.23.18", default-features = false, features = ["ring", "std", "tls12"] }
+rustls-native-certs = "0.8"
+serde = "1"
+serde_json = "1"
+# "all" for keepalive interval/retries and TCP_USER_TIMEOUT
+socket2 = { version = "0.6", features = ["all"] }
+tempfile = "3.10"
+thiserror = "2"
+tokio = { version = "1.38", features = ["fs", "macros", "net", "process", "rt", "sync", "time"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+tracing = "0.1.40"
+
+clap = { version = "4.5", features = ["derive", "env"], optional = true }
+tracing-subscriber = { version = "0.3.18", optional = true }
+
+[dev-dependencies]
+tokio = { version = "1.38", features = ["full"] }
+tracing-subscriber = "0.3.18"
+
+[[bin]]
+name = "aapns"
+path = "src/main.rs"
+required-features = ["cli"]
+
+[[example]]
+name = "connection_usage"
+required-features = ["cli"]
+
+[[example]]
+name = "pool_benchmark"
+required-features = ["cli"]
+
+[[example]]
+name = "mock_server"
+required-features = ["cli"]
+
+[package.metadata.docs.rs]
+all-features = true

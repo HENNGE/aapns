@@ -6,7 +6,7 @@ on:
 
 permissions:
   contents: read
-  id-token: write
+  id-token: write # crates.io trusted publishing
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -17,42 +17,39 @@ defaults:
     shell: bash
 
 env:
-  PYTHON_VERSION_MIN: 3.8
   TARGET_BRANCH: ${{ github.event.release.target_commitish }}
   DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
   TAG_NAME: ${{ github.ref_name }}
 
 jobs:
   release:
-    name: Release to PyPI
+    name: Release to crates.io
     runs-on: ubuntu-latest
     steps:
       - name: Check whether release target branch is default branch
         if: env.TARGET_BRANCH != env.DEFAULT_BRANCH
-        uses: actions/github-script@v6
+        uses: actions/github-script@v7
         with:
           script: |
-            core.setFailed('Target branch (${{ env.TARGET_BRANCH }}) is not default branch (${{ env.DEFAULT_BRANCH }}).')
-      
-      - uses: actions/checkout@v3
-      
-      - uses: actions/setup-python@v4
-        with:
-          python-version: ${{ env.PYTHON_VERSION_MIN }}
-          
-      - run: curl -sSL https://install.python-poetry.org | python3 -
-      
-      - run: echo "PKG_VER=$(poetry version --short)" >> $GITHUB_ENV
-      
+            core.setFailed(`Target branch (${process.env.TARGET_BRANCH}) is not default branch (${process.env.DEFAULT_BRANCH}).`)
+
+      - uses: actions/checkout@v4
+
+      - run: rustup toolchain install stable --profile minimal && rustup default stable
+
+      - run: echo "PKG_VER=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')" >> "$GITHUB_ENV"
+
       - name: Check whether current tag matches package version
         if: env.TAG_NAME != env.PKG_VER
-        uses: actions/github-script@v6
+        uses: actions/github-script@v7
         with:
           script: |
-            core.setFailed('Tag name (${{ env.TAG_NAME }}) does not match package version (${{ env.PKG_VER }}).')
-      
-      - name: Build package
-        run: poetry build
-        
-      - name: Publish package to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
+            core.setFailed(`Tag name (${process.env.TAG_NAME}) does not match package version (${process.env.PKG_VER}).`)
+
+      - uses: rust-lang/crates-io-auth-action@v1
+        id: auth
+
+      - name: Publish package to crates.io
+        run: cargo publish --locked
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}

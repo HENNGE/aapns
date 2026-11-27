@@ -6,113 +6,64 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
-  lock:
-    timeout-minutes: 10
+  test:
+    timeout-minutes: 15
     strategy:
+      fail-fast: false
       matrix:
-        python-version:  ["3.8", "3.9", "3.10", "3.11"]
-    runs-on: "ubuntu-latest"
+        os: ["ubuntu-latest", "macos-latest"]
+    runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-python@v4
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install stable --profile minimal && rustup default stable
+      - uses: actions/cache@v4
         with:
-          python-version: ${{ matrix.python-version }}
-      - run: curl -sSL https://install.python-poetry.org | python3 -
-      - run: poetry lock
-      - uses: actions/cache@v3
-        with:
-          path: poetry.lock
-          key: ${{ github.sha }}-${{ matrix.python-version }}
-          
-  pytest:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-test-${{ hashFiles('Cargo.lock') }}
+      - run: cargo test --all-features --locked
+
+  msrv:
     timeout-minutes: 10
-    needs: lock
-    strategy:
-      matrix:
-        python-version: ["3.8", "3.9", "3.10", "3.11"]
     runs-on: "ubuntu-latest"
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-go@v4
-      - uses: actions/setup-python@v4
-        with:
-          python-version: ${{ matrix.python-version }}
-      - uses: actions/cache@v3
-        with:
-          path: poetry.lock
-          key: ${{ github.sha }}-${{ matrix.python-version }}
-      - run: curl -sSL https://install.python-poetry.org | python3 -
-      - run: poetry install --extras cli
-      - run: poetry run pytest --verbose
-      
-  mypy:
+      - uses: actions/checkout@v4
+      - run: |
+          msrv=$(sed -n 's/^rust-version = "\(.*\)"/\1/p' Cargo.toml)
+          rustup toolchain install "$msrv" --profile minimal
+          cargo +"$msrv" check --all-features --all-targets --locked
+
+  fmt:
     timeout-minutes: 10
-    needs: lock
-    strategy:
-      matrix:
-        python-version: ["3.8", "3.9", "3.10", "3.11"]
     runs-on: "ubuntu-latest"
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-python@v4
-        with:
-          python-version: ${{ matrix.python-version }}
-      - uses: actions/cache@v3
-        with:
-          path: poetry.lock
-          key: ${{ github.sha }}-${{ matrix.python-version }}
-      - run: curl -sSL https://install.python-poetry.org | python3 -
-      - run: poetry install --extras cli
-      - run: poetry run mypy
-      
-  isort:
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install stable --profile minimal --component rustfmt && rustup default stable
+      - run: cargo fmt --all --check
+
+  clippy:
     timeout-minutes: 10
-    needs: lock
     runs-on: "ubuntu-latest"
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-python@v4
-        with:
-          python-version: "3.11"
-      - uses: actions/cache@v3
-        with:
-          path: poetry.lock
-          key: ${{ github.sha }}-3.11
-      - run: curl -sSL https://install.python-poetry.org | python3 -
-      - run: poetry install --extras cli
-      - run: poetry run isort --check --diff src tests
-      
-  black:
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install stable --profile minimal --component clippy && rustup default stable
+      - run: cargo clippy --all-targets --all-features --locked -- -D warnings
+
+  docs:
     timeout-minutes: 10
-    needs: lock
     runs-on: "ubuntu-latest"
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-python@v4
-        with:
-          python-version: "3.11"
-      - uses: actions/cache@v3
-        with:
-          path: poetry.lock
-          key: ${{ github.sha }}-3.11
-      - run: curl -sSL https://install.python-poetry.org | python3 -
-      - run: poetry install --extras cli
-      - run: poetry run black --check src/ tests/
-      
-  ruff:
-    timeout-minutes: 10
-    needs: lock
-    runs-on: "ubuntu-latest"
-    steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-python@v4
-        with:
-          python-version: "3.11"
-      - uses: actions/cache@v3
-        with:
-          path: poetry.lock
-          key: ${{ github.sha }}-3.11
-      - run: curl -sSL https://install.python-poetry.org | python3 -
-      - run: poetry install --extras cli
-      - run: poetry run ruff src/ tests/
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install stable --profile minimal && rustup default stable
+      - run: cargo doc --no-deps --all-features --locked
+        env:
+          RUSTDOCFLAGS: -D warnings
