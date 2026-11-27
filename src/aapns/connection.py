@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import socket
 import ssl
 from asyncio import CancelledError, TimeoutError, create_task, open_connection, wait_for
 from contextlib import suppress
@@ -36,6 +37,14 @@ CONNECTION_WINDOW_SIZE = 1000 * MAX_RESPONSE_SIZE
 # Connection establishment safety time limits
 CONNECTION_TIMEOUT = 5
 TLS_TIMEOUT = 5
+# Dead peer detection, in case a middlebox (e.g. NAT) drops the connection silently
+# Otherwise OS gives up only after its retransmission limit, ~15min on Linux
+# Idle connection: keepalive probes after 60s, every 10s, give up after 3
+TCP_KEEPALIVE_IDLE = 60
+TCP_KEEPALIVE_INTERVAL = 10
+TCP_KEEPALIVE_COUNT = 3
+# Busy connection: give up if sent data is not acknowledged in 30s
+TCP_USER_TIMEOUT = 30
 logger = getLogger(__package__)
 
 
@@ -148,6 +157,18 @@ class Connection:
             with suppress(SSLError, ConnectionError):
                 await write_stream.wait_closed()
             raise
+
+        sock = write_stream.get_extra_info("socket")
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+        for name, value in (
+            ("TCP_KEEPIDLE", TCP_KEEPALIVE_IDLE),
+            ("TCP_KEEPINTVL", TCP_KEEPALIVE_INTERVAL),
+            ("TCP_KEEPCNT", TCP_KEEPALIVE_COUNT),
+            ("TCP_USER_TIMEOUT", TCP_USER_TIMEOUT * 1000),
+        ):
+            # Not all options are available on all platforms
+            if hasattr(socket, name):
+                sock.setsockopt(socket.IPPROTO_TCP, getattr(socket, name), value)
 
         # FIXME we could wait for settings frame from the server,
         # to tell us how much we can actually send, as initial window is small
@@ -345,7 +366,14 @@ class Connection:
                 # * [maybe] starting a stream
                 # * a stream getting closed (but not half-closed)
                 # * closing / closed change
-        except ConnectionError as e:
+        except SSLError as e:
+            # TLS 1.3 servers reject a bad client certificate after the handshake,
+            # e.g. an expired certificate is reported here, so log it
+            if not self.outcome:
+                self.outcome = str(e)
+            logger.error("TLS error: %s", e)
+        except OSError as e:
+            # e.g. connection reset by peer or timed out
             if not self.outcome:
                 self.outcome = str(e)
         except Exception:
@@ -374,7 +402,7 @@ class Connection:
                         await self.should_write.wait()
                         self.should_write.clear()
 
-        except (SSLError, ConnectionError) as e:
+        except OSError as e:
             if not self.outcome:
                 self.outcome = str(e)
         except Exception:
