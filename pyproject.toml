@@ -1,13 +1,15 @@
-[tool.poetry]
+[project]
 name = "aapns"
 version = "23.7"
 description = "Asynchronous Apple Push Notification Service Client"
-authors = ["Jonas Obrist <jonas.obrist@hennge.com>", "Dima Tisnek <dimaqq@gmail.com>", "Muhammad Furqan Habibi <furqan.habibi@hennge.com>"]
+authors = [
+  {name = "Jonas Obrist", email = "jonas.obrist@hennge.com"},
+  {name = "Dima Tisnek", email = "dimaqq@gmail.com"},
+  {name = "Muhammad Furqan Habibi", email = "furqan.habibi@hennge.com"},
+]
 license = "Apache-2.0"
-repository = "https://github.com/hennge/aapns"
-documentation = "https://aapns.readthedocs.io"
+license-files = ["LICENSE"]
 readme = "README.md"
-homepage = "https://github.com/HENNGE/aapns"
 keywords = ["push-notification", "apple", "ios", "asyncio"]
 classifiers = [
   "Development Status :: 5 - Production/Stable",
@@ -24,31 +26,36 @@ classifiers = [
   "Operating System :: POSIX :: Linux",
   "Operating System :: MacOS :: MacOS X",
   "Operating System :: OS Independent",
-  "License :: OSI Approved :: Apache Software License",
+]
+requires-python = ">=3.8,<4"
+dependencies = [
+  "attrs>=23,<24",
+  "h2>=3.2.0,<4",
 ]
 
-[tool.poetry.dependencies]
-python = "^3.8"
-attrs = "^23"
-h2 = "^3.2.0"
-click = {version="^8", optional=true}
+[project.optional-dependencies]
+cli = ["click>=8,<9"]
 
-[tool.poetry.group.dev.dependencies]
-pytest = "^7"
-cryptography = "^41"
-pytest-asyncio = "^0.21"
-sphinx = "^7"
-mypy = "^1.4"
-black = "^23"
-isort = "^5"
-ruff = "0.0.275"
-aiohttp = "^3.8.4"
+[project.scripts]
+aapns = "aapns.cli:main"
 
-[tool.poetry.extras]
-cli = ["click"]
+[project.urls]
+Homepage = "https://github.com/HENNGE/aapns"
+Repository = "https://github.com/hennge/aapns"
+Documentation = "https://aapns.readthedocs.io"
 
-[tool.poetry.scripts]
-aapns = {callable="aapns.cli:main", extras=["cli"]}
+[dependency-groups]
+dev = [
+  "pytest>=7,<8",
+  "cryptography>=41,<42",
+  "pytest-asyncio>=0.21,<0.22",
+  "sphinx>=7,<8",
+  "mypy>=1.4,<2",
+  "black>=23,<24",
+  "isort>=5,<6",
+  "ruff==0.0.275",
+  "aiohttp>=3.8.4,<4",
+]
 
 [tool.isort]
 profile = "black"
@@ -78,5 +85,5 @@ asyncio_mode = "auto"
 testpaths = "tests"
 
 [build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
+requires = ["uv_build>=0.13,<0.14"]
+build-backend = "uv_build"
