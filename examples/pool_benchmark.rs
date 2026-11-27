@@ -1,15 +1,12 @@
-//! Example of using `aapns::pool::Pool` (mid level API), and a performance
-//! test for the connection pool.
+//! Example of using aapns::pool::Pool (mid-level API)
 //!
-//! Expects a local server on port 2197, for example:
+//! Performance test for the connection pool.
 //!
-//! ```sh
-//! cargo run --release --features cli --example mock_server -- --port 2197 &
-//! cargo run --release --features cli --example pool_benchmark -- 2000
-//! ```
+//! Expects a local server on port 2197, for example, run:
+//!     cargo run --features cli --example mock_server
 //!
-//! Be careful if you target the sandbox or production server, Apple won't
-//! like the flood. Consider limiting the number of requests to ~100 or so.
+//! Be careful if you target sandbox or production server, Apple won't like the flood.
+//! Consider limiting number of requests to ~100 or so.
 
 use std::time::Duration;
 
@@ -23,7 +20,6 @@ use tracing::{info, warn};
 
 #[derive(Parser)]
 struct Args {
-    /// Number of requests
     #[arg(default_value_t = 2000)]
     count: usize,
 }

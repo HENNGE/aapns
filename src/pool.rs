@@ -1,40 +1,3 @@
-//! Mid level API: a fixed-size pool of connections with automatic replacement
-//! and retries.
-//!
-//! A pool can handle up to `1000 * size` (current APNs limit) concurrent
-//! requests and queues requests beyond that, retrying with exponential
-//! back-off until the request expires. It is thus suitable for bursty traffic
-//! and for sending notifications en masse.
-//!
-//! ```no_run
-//! use aapns::connection::Request;
-//! use aapns::errors::Error;
-//! use aapns::pool::Pool;
-//! use aapns::tls::create_tls_config;
-//! use serde_json::json;
-//! use std::path::Path;
-//! use std::time::Duration;
-//!
-//! # async fn example() -> aapns::errors::Result<()> {
-//! let tls = create_tls_config(Some(Path::new("/path/to/push/cert.pem")), None)?;
-//! let pool = Pool::connect("https://api.development.push.apple.com", 10, Some(tls)).await?;
-//! let request = Request::new(
-//!     "/3/device/42...42",
-//!     &[("apns-push-type", "alert"), ("apns-topic", "com.app.your")],
-//!     &json!({"aps": {"alert": {"body": "Wakey-wakey, ham and bakey!"}}}),
-//! )?
-//! .with_timeout(Some(Duration::from_secs(10))); // without a timeout, the pool may retry forever
-//! match pool.post(&request).await {
-//!     Ok(response) => assert_eq!(response.code, 200),
-//!     Err(Error::Timeout(_)) => {} // the notification has expired
-//!     Err(Error::Closed(_)) => {}  // the pool is done, e.g. the client certificate has expired
-//!     Err(_) => {}                 // rare
-//! }
-//! pool.close().await;
-//! # Ok(())
-//! # }
-//! ```
-
 use std::fmt;
 use std::future::Future;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
@@ -49,21 +12,13 @@ use crate::connection::{Connection, Origin, Request, Response};
 use crate::errors::{Error, Result};
 use crate::{Counted, lock, tls};
 
-/// Default number of connections in a pool.
 pub const DEFAULT_POOL_SIZE: usize = 2;
-/// The pool checks its connections at least this often.
 const MAINTENANCE_INTERVAL: Duration = Duration::from_secs(1);
-/// Upper bound on the delay between retries.
 const MAX_RETRY_DELAY: Duration = Duration::from_secs(10);
-/// A pool is shut down when one of its connections is closed with this reason.
 const FATAL_OUTCOME: &str = "BadCertificateEnvironment";
 
-/// Something requests can be posted to: a [`Pool`], a [`Connection`], or a
-/// test double.
 pub trait Transport: Send + Sync {
-    /// Posts the request.
     fn post(&self, request: &Request) -> impl Future<Output = Result<Response>> + Send;
-    /// Closes the transport and frees up its resources.
     fn close(&self) -> impl Future<Output = ()> + Send;
 }
 
@@ -87,19 +42,14 @@ impl Transport for Pool {
     }
 }
 
-/// State of a [`Pool`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PoolState {
-    /// Accepting requests.
     Active,
-    /// Shutting down, for example because the client certificate was rejected.
     Closing,
-    /// Closed.
     Closed,
 }
 
 impl PoolState {
-    /// Lower case name of the state.
     pub const fn as_str(self) -> &'static str {
         match self {
             PoolState::Active => "active",
@@ -129,13 +79,18 @@ impl Members {
         self.closing || self.closed
     }
 
-    /// Shuts the pool down if APNs rejected the client certificate.
+    /// A hook to terminate the pool if/when client certificate expires.
     ///
-    /// All connections share the same TLS configuration, and thus the same
-    /// client certificate. If APNs closes one connection because of it, the
-    /// entire pool is done for.
+    /// If Apple is not happy with our client certificate, it will close individual
+    /// connections with a JSON blob with a specific message. All connections in the
+    /// pool share same TLS configuration, and thus same client certificate. If one
+    /// connection is closed so, then the entire pool is done for.
     fn termination_hook(&mut self, connection: &Connection) {
-        if self.outcome.is_none() && connection.outcome() == Some(FATAL_OUTCOME) {
+        // h2 includes the GOAWAY debug data, {"reason": "..."}, in the error message
+        let fatal = connection
+            .outcome()
+            .is_some_and(|outcome| outcome.contains(FATAL_OUTCOME));
+        if self.outcome.is_none() && fatal {
             tracing::error!(
                 outcome = FATAL_OUTCOME,
                 "client certificate rejected, closing the connection pool"
@@ -191,21 +146,25 @@ impl Drop for PoolInner {
     }
 }
 
-/// A fixed-size connection pool with automatic replacement of connections.
+/// Simple fixed-size connection pool with automatic replacement
 ///
-/// Cloning a pool is cheap and yields another handle to the same pool.
+/// Example use:
+///
+/// ```no_run
+/// # async fn example(request: aapns::connection::Request) -> aapns::errors::Result<()> {
+/// let pool = aapns::pool::Pool::connect("https://api.push.apple.com", 2, None).await?;
+/// let response = pool.post(&request).await;
+/// pool.close().await;
+/// # Ok(())
+/// # }
+/// ```
 #[derive(Clone)]
 pub struct Pool {
     inner: Arc<PoolInner>,
 }
 
 impl Pool {
-    /// Connects `size` connections to `origin`, which must be of the form
-    /// `https://<host>[:<port>]`.
-    ///
-    /// Without a TLS configuration, the server is verified against the
-    /// platform's trust store and no client certificate is presented.
-    /// Must be called within a Tokio runtime.
+    /// Connect to `origin` and return a connection pool
     pub async fn connect(
         origin: &str,
         size: usize,
@@ -258,14 +217,7 @@ impl Pool {
         Ok(Pool { inner })
     }
 
-    /// Posts `request` on a connection in this pool, retrying with exponential
-    /// back-off while all connections are busy or being replaced, until the
-    /// request expires.
-    ///
-    /// A request in flight on a connection that breaks is retried on another
-    /// connection, so the server may receive it twice. Set the
-    /// `apns-collapse-id` header to make sure the user sees the notification
-    /// only once.
+    /// Post the `request` on a connection in this pool, with retries
     pub async fn post(&self, request: &Request) -> Result<Response> {
         let mut outcome = Outcome {
             pool: &self.inner,
@@ -300,6 +252,11 @@ impl Pool {
     }
 
     async fn post_once(&self, request: &Request) -> Result<Response> {
+        // FIXME ideally, follow weighted round-robin discipline:
+        // * generally allocate requests evenly across connections
+        // * but keep load for few last connections lighter
+        //   to prevent all connections expiring at once
+        // * ideally track connection backlog
         let inner = &*self.inner;
         let active = lock(&inner.members).active.clone();
         let start = inner.next.fetch_add(1, Ordering::Relaxed);
@@ -317,8 +274,7 @@ impl Pool {
         Err(Error::Blocked)
     }
 
-    /// Closes the pool and all its connections. Requests in flight fail with
-    /// [`Error::Closed`].
+    /// Terminate the connection pool and free up the resources
     pub async fn close(&self) {
         let inner = &*self.inner;
         {
@@ -337,9 +293,9 @@ impl Pool {
         lock(&inner.members).closed = true;
     }
 
-    /// Changes the number of connections in the pool. The pool grows or
-    /// shrinks in the background; connections removed from the pool finish
-    /// their requests in flight first.
+    /// Resize the connection pool
+    ///
+    /// Give the pool some time to grow/shrink to new `size` afterwards.
     pub fn resize(&self, size: usize) -> Result<()> {
         if size < 1 {
             return Err(Error::InvalidPoolSize);
@@ -349,7 +305,6 @@ impl Pool {
         Ok(())
     }
 
-    /// The state of the pool.
     pub fn state(&self) -> PoolState {
         let members = lock(&self.inner.members);
         if members.closed {
@@ -361,27 +316,23 @@ impl Pool {
         }
     }
 
-    /// Why the pool is closing or closed.
     pub fn outcome(&self) -> Option<String> {
         lock(&self.inner.members).outcome.clone()
     }
 
-    /// The target number of connections.
     pub fn size(&self) -> usize {
         lock(&self.inner.members).size
     }
 
-    /// Number of connections taking new requests.
     pub fn active(&self) -> usize {
         lock(&self.inner.members).active.len()
     }
 
-    /// Number of connections being retired.
     pub fn dying(&self) -> usize {
         lock(&self.inner.members).dying.len()
     }
 
-    /// Count of the requests that were sent and await a response.
+    /// Count of the requests that were sent out and are awaiting server response.
     pub fn inflight(&self) -> usize {
         self.inner
             .connections()
@@ -390,7 +341,7 @@ impl Pool {
             .sum()
     }
 
-    /// Count of the requests that are still to be sent out.
+    /// Count of the requests that we are still to send out.
     pub fn buffered(&self) -> usize {
         self.inner
             .connections()
@@ -399,7 +350,7 @@ impl Pool {
             .sum()
     }
 
-    /// Total count of pending requests, including those awaiting a retry.
+    /// Total count of pending requests.
     pub fn pending(&self) -> usize {
         self.inner
             .connections()
@@ -409,17 +360,14 @@ impl Pool {
             + self.retrying()
     }
 
-    /// Count of the requests waiting to be retried.
     pub fn retrying(&self) -> usize {
         self.inner.retrying.load(Ordering::SeqCst)
     }
 
-    /// Count of the requests that got a response.
     pub fn completed(&self) -> u64 {
         self.inner.completed.load(Ordering::SeqCst)
     }
 
-    /// Count of the requests that failed or were cancelled.
     pub fn errors(&self) -> u64 {
         self.inner.errors.load(Ordering::SeqCst)
     }
@@ -459,8 +407,6 @@ impl fmt::Debug for Pool {
     }
 }
 
-/// Counts a request as completed or as an error, including when the request
-/// is cancelled.
 struct Outcome<'a> {
     pool: &'a PoolInner,
     recorded: bool,
@@ -486,7 +432,6 @@ impl Drop for Outcome<'_> {
     }
 }
 
-/// 1ms, 3ms, 10ms, 32ms, 100ms, ... up to [`MAX_RETRY_DELAY`].
 fn retry_delay(attempt: u32) -> Duration {
     let seconds = 10f64.powf(-3.0 + 0.5 * f64::from(attempt));
     Duration::from_secs_f64(seconds.min(MAX_RETRY_DELAY.as_secs_f64()))
@@ -500,13 +445,10 @@ async fn maintain(pool: Weak<PoolInner>, wakeup: Arc<Notify>) {
                 return;
             }
         }
-        // Woken up early when a connection starts closing or the pool is resized.
         let _ = tokio::time::timeout(MAINTENANCE_INTERVAL, wakeup.notified()).await;
     }
 }
 
-/// Retires broken connections, closes idle retired connections and replaces
-/// connections. Returns `false` once the pool is closing.
 async fn maintain_once(inner: &PoolInner) -> bool {
     let idle = {
         let mut members = lock(&inner.members);
@@ -531,7 +473,6 @@ async fn maintain_once(inner: &PoolInner) -> bool {
         let mut idle = Vec::new();
         for connection in std::mem::take(&mut members.dying) {
             if connection.is_closed() {
-                // Closed by the server or by itself: forget it.
                 members.termination_hook(&connection);
             } else if connection.pending() == 0 {
                 idle.push(connection);

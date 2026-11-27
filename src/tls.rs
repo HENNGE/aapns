@@ -1,8 +1,3 @@
-//! TLS configuration.
-//!
-//! Connections use [rustls], which only supports TLS 1.2 and 1.3. ALPN is
-//! always set to `h2`, whatever the configuration passed in.
-
 use std::path::Path;
 use std::sync::Arc;
 
@@ -12,17 +7,11 @@ use rustls::{ClientConfig, RootCertStore};
 
 use crate::errors::{Error, Result};
 
-/// The crypto provider used by aapns, independent of the process default.
 pub fn crypto_provider() -> Arc<rustls::crypto::CryptoProvider> {
     Arc::new(rustls::crypto::ring::default_provider())
 }
 
-/// Creates a TLS client configuration suitable for APNs.
-///
-/// The server is verified against the platform's trust store, plus the
-/// certificates in `ca_file` if given. If `client_cert_path` is given, the
-/// client certificate chain and its private key are loaded from that PEM
-/// file, the format of an Apple push certificate exported to PEM.
+/// A basic TLS configuration suitable for HTTP/2 and APN.
 pub fn create_tls_config(
     client_cert_path: Option<&Path>,
     ca_file: Option<&Path>,
@@ -64,9 +53,6 @@ pub fn create_tls_config(
     Ok(Arc::new(config))
 }
 
-/// Loads a client certificate chain and its private key from a single PEM
-/// file. Text outside of PEM sections, such as the `Bag Attributes` written by
-/// `openssl pkcs12`, is ignored. Encrypted private keys are not supported.
 pub fn load_client_identity(
     path: &Path,
 ) -> Result<(Vec<CertificateDer<'static>>, PrivateKeyDer<'static>)> {
@@ -83,7 +69,6 @@ pub fn load_client_identity(
     Ok((chain, key))
 }
 
-/// Loads all certificates from a PEM file.
 pub fn load_certificates(path: &Path) -> Result<Vec<CertificateDer<'static>>> {
     let read_error = |e: rustls::pki_types::pem::Error| {
         Error::Tls(format!("failed to read {}: {e}", path.display()))
@@ -101,7 +86,6 @@ pub fn load_certificates(path: &Path) -> Result<Vec<CertificateDer<'static>>> {
     Ok(certs)
 }
 
-/// Returns `config` with ALPN set to `h2`, cloning it only if necessary.
 pub(crate) fn with_h2_alpn(config: Arc<ClientConfig>) -> Arc<ClientConfig> {
     if config.alpn_protocols == [b"h2"] {
         config

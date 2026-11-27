@@ -1,5 +1,3 @@
-//! Functional tests of the high level API against the mock server.
-
 mod common;
 
 use std::time::Instant;
@@ -96,8 +94,7 @@ async fn closed_client() {
 async fn termination() {
     let server = MockServer::start(Flavor::TerminatesConnection).await;
     let client = target(&server).create_client().await.unwrap();
-    // The terminating server may break the first request, and definitely
-    // breaks the second, which times out after 10s.
+    // terminating server may break the first request, and definitely breaks the second
     let result = async {
         client
             .send_notification("42", &notification(), &SendOptions::default())

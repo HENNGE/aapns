@@ -1,5 +1,3 @@
-//! Command line client for sending test notifications.
-
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -8,7 +6,6 @@ use aapns::config::{self, Priority};
 use aapns::models::{Alert, Notification};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 
-/// Send push notifications through APNs or to a simulator.
 #[derive(Parser)]
 #[command(name = "aapns", version)]
 struct Cli {
@@ -18,43 +15,31 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Send a notification through APNs.
     Server(ServerArgs),
-    /// Send a notification to a simulator with `xcrun simctl push`.
     Simulator(SimulatorArgs),
 }
 
 #[derive(Clone, Copy, ValueEnum)]
 enum Origin {
-    /// Production APNs
     Prod,
-    /// Development APNs
     Sandbox,
-    /// A local test server, see the mock_server example
     Local,
 }
 
 #[derive(Args)]
 struct ServerArgs {
-    /// Device token
     token: String,
-    /// Alert body
     body: String,
-    /// Alert title
     #[arg(long)]
     title: Option<String>,
-    /// PEM file with the client certificate and its private key
     #[arg(long, env = "CLIENT_CERT_PATH")]
     client_cert_path: PathBuf,
     #[arg(long, value_enum, default_value_t = Origin::Sandbox)]
     server: Origin,
-    /// Use the alternative port, 2197
     #[arg(long, conflicts_with = "port")]
     alt_port: bool,
-    /// Use this port
     #[arg(long)]
     port: Option<u16>,
-    /// Additional CA certificates to trust [default for --server=local: tests/certs/ca.pem]
     #[arg(long)]
     ca_file: Option<PathBuf>,
     #[command(flatten)]
@@ -63,13 +48,9 @@ struct ServerArgs {
 
 #[derive(Args)]
 struct SimulatorArgs {
-    /// Simulator device id, or `booted`
     device_id: String,
-    /// Bundle id of the app
     app_id: String,
-    /// Alert body
     body: String,
-    /// Alert title
     #[arg(long)]
     title: Option<String>,
     #[command(flatten)]
@@ -78,20 +59,16 @@ struct SimulatorArgs {
 
 #[derive(Args)]
 struct Options {
-    /// UNIX time after which the notification is no longer valid
     #[arg(long)]
     expiration: Option<u64>,
-    /// Send with priority 10 rather than 5
     #[arg(long)]
     immediately: bool,
-    /// Topic, usually the bundle id of the app
     #[arg(long)]
     topic: Option<String>,
     #[arg(long)]
     collapse_id: Option<String>,
     #[arg(long)]
     apns_id: Option<String>,
-    /// Log debug information
     #[arg(long)]
     verbose: bool,
 }

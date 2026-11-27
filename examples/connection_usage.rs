@@ -1,11 +1,4 @@
-//! Example of using `aapns::connection::Connection` (low level API): sends one
-//! notification per message, a second apart, over a single connection.
-//!
-//! ```sh
-//! cargo run --features cli --example mock_server -- --port 2197 &
-//! cargo run --features cli --example connection_usage -- --local --alt-port \
-//!     --client-cert-path tests/certs/client.pem 42 hello world
-//! ```
+//! Example of using aapns::connection::Connection (low-level API)
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -21,7 +14,6 @@ use tracing::info;
 struct Args {
     #[arg(long)]
     verbose: bool,
-    /// Send to the mock server, trusting the test CA
     #[arg(long)]
     local: bool,
     #[arg(long)]
@@ -30,7 +22,6 @@ struct Args {
     prod: bool,
     #[arg(long)]
     alt_port: bool,
-    /// Send the messages as localization keys
     #[arg(long)]
     localized: bool,
     #[arg(long)]

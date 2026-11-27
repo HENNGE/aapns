@@ -1,35 +1,15 @@
-//! Notification payload models.
-//!
-//! Field types are enforced at compile time, so invalid notifications cannot
-//! be constructed. For example, localization arguments must be strings:
-//!
-//! ```compile_fail
-//! # use aapns::models::Localized;
-//! let localized = Localized::with_args("key", [1, 2, 3]);
-//! ```
-//!
-//! and an alert always has a body:
-//!
-//! ```compile_fail
-//! # use aapns::models::Alert;
-//! let alert = Alert::new();
-//! ```
-
 use std::fmt;
 
 use serde_json::{Map, Value};
 
-/// A localized string, used for the body, title or subtitle of an [`Alert`].
+/// Represents a localized string to be used for the body or title of an [`Alert`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Localized {
-    /// Key of the localized string in the app's `Localizable.strings`.
     pub key: String,
-    /// Arguments substituted into the localized string. Omitted if empty.
     pub args: Vec<String>,
 }
 
 impl Localized {
-    /// A localized string without arguments.
     pub fn new(key: impl Into<String>) -> Self {
         Localized {
             key: key.into(),
@@ -37,7 +17,6 @@ impl Localized {
         }
     }
 
-    /// A localized string with arguments.
     pub fn with_args<I, S>(key: impl Into<String>, args: I) -> Self
     where
         I: IntoIterator<Item = S>,
@@ -50,12 +29,9 @@ impl Localized {
     }
 }
 
-/// Alert text, either verbatim or localized on the device.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Text {
-    /// Text displayed as is.
     Plain(String),
-    /// Text looked up in the app's localization files.
     Localized(Localized),
 }
 
@@ -99,23 +75,17 @@ impl From<Localized> for Text {
     }
 }
 
-/// The alert of a [`Notification`].
+/// Represents an alert, which can be used in [`Notification`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Alert {
-    /// Body of the alert.
     pub body: Text,
-    /// Title of the alert.
     pub title: Option<Text>,
-    /// Subtitle of the alert.
     pub subtitle: Option<Text>,
-    /// Localization key of the action button.
     pub action_loc_key: Option<String>,
-    /// Launch image to display.
     pub launch_image: Option<String>,
 }
 
 impl Alert {
-    /// An alert with only a body.
     pub fn new(body: impl Into<Text>) -> Self {
         Alert {
             body: body.into(),
@@ -126,19 +96,16 @@ impl Alert {
         }
     }
 
-    /// Sets the title.
     pub fn with_title(mut self, title: impl Into<Text>) -> Self {
         self.title = Some(title.into());
         self
     }
 
-    /// Sets the subtitle.
     pub fn with_subtitle(mut self, subtitle: impl Into<Text>) -> Self {
         self.subtitle = Some(subtitle.into());
         self
     }
 
-    /// The `alert` dictionary of the APNs payload.
     pub fn to_json(&self) -> Map<String, Value> {
         let mut alert = Map::new();
         if let Some(title) = &self.title {
@@ -164,26 +131,19 @@ impl Alert {
     }
 }
 
-/// Type of a push notification, sent as the `apns-push-type` header.
+/// Enum holding possible types of push notifications
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum PushType {
-    /// A notification that displays an alert, plays a sound or badges the app icon.
     #[default]
     Alert,
-    /// A notification that delivers content in the background.
     Background,
-    /// A VoIP notification.
     Voip,
-    /// A notification for a watchOS complication.
     Complication,
-    /// A notification for a File Provider extension.
     FileProvider,
-    /// A notification telling managed devices to contact the MDM server.
     Mdm,
 }
 
 impl PushType {
-    /// The value sent to APNs.
     pub const fn as_str(self) -> &'static str {
         match self {
             PushType::Alert => "alert",
@@ -195,7 +155,6 @@ impl PushType {
         }
     }
 
-    /// Maximum payload size APNs accepts for this push type, in bytes.
     pub const fn max_payload_size(self) -> usize {
         match self {
             PushType::Voip => crate::config::MAX_NOTIFICATION_PAYLOAD_SIZE_VOIP,
@@ -210,45 +169,23 @@ impl fmt::Display for PushType {
     }
 }
 
-/// A notification to send. Refer to Apple's documentation for the meaning of
-/// each field.
-///
-/// ```
-/// use aapns::models::{Alert, Localized, Notification};
-///
-/// let notification = Notification {
-///     badge: Some(42),
-///     sound: Some("default".into()),
-///     ..Notification::new(Alert::new(Localized::with_args("GREETING", ["Jane"])))
-/// };
-/// ```
+/// Represents a notification to send. For details on the parameters, please
+/// refer to the Apple APNS documentation.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Notification {
-    /// The alert to display.
     pub alert: Alert,
-    /// Type of the notification.
     pub push_type: PushType,
-    /// Number to display on the app icon; `Some(0)` removes the badge.
     pub badge: Option<u32>,
-    /// Name of the sound to play.
     pub sound: Option<String>,
-    /// Sets `content-available` to wake the app in the background.
     pub content_available: bool,
-    /// Notification category, for actionable notifications.
     pub category: Option<String>,
-    /// Identifier used to group notifications.
     pub thread_id: Option<String>,
-    /// Sets `mutable-content` so that a notification service extension can
-    /// modify the notification.
     pub mutable_content: bool,
-    /// Identifier of the window brought forward when the notification is opened.
     pub target_content_id: Option<String>,
-    /// Custom top-level keys added to the payload, next to `aps`.
     pub extra: Map<String, Value>,
 }
 
 impl Notification {
-    /// A notification of type [`PushType::Alert`] with no optional fields set.
     pub fn new(alert: Alert) -> Self {
         Notification {
             alert,
@@ -264,7 +201,6 @@ impl Notification {
         }
     }
 
-    /// The JSON payload of the notification.
     pub fn to_json(&self) -> Value {
         let mut aps = Map::new();
         aps.insert("alert".into(), self.alert.to_json().into());
@@ -298,17 +234,24 @@ impl Notification {
         payload.into()
     }
 
-    /// The JSON payload of the notification, encoded as compact UTF-8 JSON.
     pub fn encode(&self) -> Vec<u8> {
         encode_json(&self.to_json())
     }
 }
 
-/// Compact JSON with keys in sorted order and non-ASCII characters as UTF-8.
 pub(crate) fn encode_json(value: &Value) -> Vec<u8> {
-    // Serializing a `Value` cannot fail: all map keys are strings.
     serde_json::to_vec(value).expect("JSON values always serialize")
 }
+
+/// ```compile_fail
+/// aapns::models::Localized::with_args("foo", [1]);
+/// ```
+///
+/// ```compile_fail
+/// aapns::models::Alert::new();
+/// ```
+#[cfg(doctest)]
+struct InvalidModels;
 
 #[cfg(test)]
 mod tests {

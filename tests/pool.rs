@@ -1,5 +1,3 @@
-//! Functional tests of the mid level API against the mock server.
-
 mod common;
 
 use std::time::{Duration, Instant};
@@ -93,7 +91,7 @@ async fn closed_pool() {
 async fn termination() {
     let server = MockServer::start(Flavor::TerminatesConnection).await;
     let pool = connect(&server).await;
-    // The terminating server may break the first request, and definitely breaks the second.
+    // terminating server may break the first request, and definitely breaks the second
     let second = Duration::from_secs(1);
     let result = async {
         pool.post(&request42().with_timeout(Some(second))).await?;
@@ -104,7 +102,7 @@ async fn termination() {
     pool.close().await;
 }
 
-/// Expected run time is ~1-3s for 2000 requests, max here is 10.
+/// Expected run time is ~3s for 2000 requests, max here is 10.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn performance() {
     let server = MockServer::start(Flavor::Ok).await;
@@ -195,9 +193,6 @@ async fn errors_are_counted() {
     pool.close().await;
 }
 
-/// APNs closes connections with `BadCertificateEnvironment` when the client
-/// certificate is for the other environment. All connections share the
-/// certificate, so the pool shuts down.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn bad_certificate_environment() {
     let server = MockServer::start(Flavor::BadCertificateEnvironment).await;
@@ -212,7 +207,6 @@ async fn bad_certificate_environment() {
     assert_eq!(pool.state(), PoolState::Closed);
 }
 
-/// Connections broken by the server are replaced.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn broken_connections_are_replaced() {
     let server = MockServer::start(Flavor::RejectsClientCertificate).await;
@@ -221,7 +215,6 @@ async fn broken_connections_are_replaced() {
         .post(&request42().with_timeout(Some(Duration::from_secs(1))))
         .await;
     assert!(matches!(result, Err(Error::Timeout(_))), "{result:?}");
-    // The pool keeps trying to replace the connections, and keeps going.
     assert_eq!(pool.state(), PoolState::Active);
     pool.close().await;
 }

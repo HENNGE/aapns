@@ -1,37 +1,3 @@
-//! Low level API: a single HTTP/2 connection to an APNs server.
-//!
-//! A connection can handle as many concurrent requests as the server allows
-//! (1000 for APNs today) and up to 2³⁰ requests in total (HTTP/2 stream id
-//! limit). Use [`Pool`](crate::pool::Pool) for automatic reconnection and
-//! retries.
-//!
-//! ```no_run
-//! use aapns::connection::{Connection, Request};
-//! use aapns::errors::Error;
-//! use aapns::tls::create_tls_config;
-//! use serde_json::json;
-//! use std::path::Path;
-//!
-//! # async fn example() -> aapns::errors::Result<()> {
-//! let tls = create_tls_config(Some(Path::new("/path/to/push/cert.pem")), None)?;
-//! let connection = Connection::connect("https://api.development.push.apple.com", Some(tls)).await?;
-//! let request = Request::new(
-//!     "/3/device/42...42",
-//!     &[("apns-push-type", "alert"), ("apns-topic", "com.app.your")],
-//!     &json!({"aps": {"alert": {"body": "Wakey-wakey, ham and bakey!"}}}),
-//! )?;
-//! match connection.post(&request).await {
-//!     Ok(response) => assert_eq!(response.code, 200),
-//!     Err(Error::Blocked) => {}    // the connection is busy, try again later
-//!     Err(Error::Closed(_)) => {}  // the connection is no longer usable
-//!     Err(Error::Timeout(_)) => {} // the notification has expired
-//!     Err(_) => {}                 // rare
-//! }
-//! connection.close().await;
-//! # Ok(())
-//! # }
-//! ```
-
 use std::fmt;
 use std::future::{Future, poll_fn};
 use std::io;
@@ -58,36 +24,28 @@ use tokio::task::JoinHandle;
 use tokio_rustls::TlsConnector;
 
 use crate::errors::{Error, Result};
-use crate::monitor::{Event, MonitoredIo, is_tls_error};
 use crate::{Counted, lock, tls};
 
-/// Responses larger than this are rejected. A successful APNs response is
-/// empty and an error response is a short JSON object.
+// OK response is empty
+// Error response is short json, ~30 bytes in size
 pub const MAX_RESPONSE_SIZE: usize = 1 << 16;
-/// Inbound connection flow control window, sized for the server's concurrent
-/// stream limit (1000 for APNs today) times the maximum response size.
+// Inbound connection flow control window
+// It's quite arbitrary, guided by:
+// * concurrent requests limit, server limit being 1000 today
+// * expected response size, see above
 pub const CONNECTION_WINDOW_SIZE: u32 = 1000 * MAX_RESPONSE_SIZE as u32;
-/// Time limit for establishing the TCP connection.
+// Connection establishment safety time limits
 pub const CONNECTION_TIMEOUT: Duration = Duration::from_secs(5);
-/// Time limit for the TLS handshake.
 pub const TLS_TIMEOUT: Duration = Duration::from_secs(5);
-
-// Dead peer detection, in case a middlebox (e.g. a NAT gateway) drops the
-// connection silently. Otherwise the OS gives up only after its retransmission
-// limit, ~15 minutes on Linux. Options missing on a platform are skipped.
-
-/// Idle connection: send TCP keepalive probes after this much idle time...
+// Dead peer detection, in case a middlebox (e.g. NAT) drops the connection silently
+// Otherwise OS gives up only after its retransmission limit, ~15min on Linux
+// Idle connection: keepalive probes after 60s, every 10s, give up after 3
 pub const TCP_KEEPALIVE_IDLE: Duration = Duration::from_secs(60);
-/// ...every this often...
 pub const TCP_KEEPALIVE_INTERVAL: Duration = Duration::from_secs(10);
-/// ...and give up after this many unanswered probes.
 pub const TCP_KEEPALIVE_COUNT: u32 = 3;
-/// Busy connection: give up if sent data is not acknowledged at the TCP level
-/// in this time (`TCP_USER_TIMEOUT`, Linux only). This is not a limit on how
-/// long APNs takes to respond.
+// Busy connection: give up if sent data is not acknowledged in 30s
 pub const TCP_USER_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// The `https://<host>[:<port>]` a connection is made to.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Origin {
     pub host: String,
@@ -135,7 +93,6 @@ impl Origin {
         })
     }
 
-    /// `host:port`, with brackets around IPv6 addresses.
     pub fn authority(&self) -> String {
         if self.host.contains(':') {
             format!("[{}]:{}", self.host, self.port)
@@ -151,10 +108,6 @@ impl fmt::Display for Origin {
     }
 }
 
-/// A `POST` request with a JSON body.
-///
-/// A request expires at the earliest of its timeout (10 seconds by default),
-/// deadline and expiration.
 #[derive(Debug, Clone)]
 pub struct Request {
     path: String,
@@ -167,11 +120,8 @@ pub struct Request {
 }
 
 impl Request {
-    /// Timeout of a new request.
     pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
 
-    /// Creates a request to `path`, which must be absolute, with the given
-    /// header fields and `data` encoded as compact JSON.
     pub fn new(
         path: &str,
         header: &[(&str, &str)],
@@ -201,20 +151,16 @@ impl Request {
         })
     }
 
-    /// Sets the timeout, counted from the creation of the request. `None`
-    /// removes the timeout; a pool may then retry the request forever.
     pub fn with_timeout(mut self, timeout: Option<Duration>) -> Self {
         self.timeout = timeout;
         self
     }
 
-    /// Sets an absolute deadline.
     pub fn with_deadline(mut self, deadline: Option<Instant>) -> Self {
         self.deadline = deadline;
         self
     }
 
-    /// Sets the time after which the notification is no longer relevant.
     pub fn with_expiration(mut self, expiration: Option<SystemTime>) -> Self {
         self.expiration = expiration.map(|at| {
             let now = Instant::now();
@@ -228,18 +174,14 @@ impl Request {
         self
     }
 
-    /// The URL path of the request.
     pub fn path(&self) -> &str {
         &self.path
     }
 
-    /// The encoded JSON body of the request.
     pub fn body(&self) -> &[u8] {
         &self.body
     }
 
-    /// When the request expires, and which limit that is: `"timeout"`,
-    /// `"deadline"` or `"expiration"`. `None` if the request never expires.
     pub fn deadline(&self) -> Option<(Instant, &'static str)> {
         [
             (
@@ -254,9 +196,7 @@ impl Request {
         .min_by_key(|&(at, _)| at)
     }
 
-    /// Time left until the request expires, `None` if it never does.
-    ///
-    /// Returns [`Error::Timeout`] if the request has expired.
+    /// Returns `Error::Timeout` if the request has timed out, or the remaining time
     pub fn time_left(&self) -> Result<Option<Duration>> {
         let Some((deadline, source)) = self.deadline() else {
             return Ok(None);
@@ -309,21 +249,14 @@ fn parse_header(name: &str, value: &str) -> Result<(HeaderName, HeaderValue)> {
     Ok((header_name, header_value))
 }
 
-/// A response from the server.
 #[derive(Debug, Clone)]
 pub struct Response {
-    /// HTTP status code.
     pub code: u16,
-    /// Response header fields.
     pub header: HeaderMap,
-    /// Parsed JSON body, `None` if the body was empty.
     pub data: Option<Value>,
 }
 
 impl Response {
-    /// Creates a response, parsing `body` as JSON.
-    ///
-    /// Returns [`Error::Format`] if the body is not empty and not JSON.
     pub fn new(code: u16, header: HeaderMap, body: &[u8]) -> Result<Response> {
         let data = if body.is_empty() {
             None
@@ -336,30 +269,24 @@ impl Response {
         Ok(Response { code, header, data })
     }
 
-    /// The `apns-id` header field.
     pub fn apns_id(&self) -> Option<&str> {
         self.header.get("apns-id")?.to_str().ok()
     }
 
-    /// The `reason` of an error response.
+    /// Response JSON 'reason' value, used in error responses.
     pub fn reason(&self) -> Option<&str> {
         self.data.as_ref()?.get("reason")?.as_str()
     }
 }
 
-/// State of a [`Connection`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ConnectionState {
-    /// Accepting requests.
     Active,
-    /// Not accepting new requests; requests in flight may still complete.
     Closing,
-    /// Closed.
     Closed,
 }
 
 impl ConnectionState {
-    /// Lower case name of the state.
     pub const fn as_str(self) -> &'static str {
         match self {
             ConnectionState::Active => "active",
@@ -375,15 +302,12 @@ impl fmt::Display for ConnectionState {
     }
 }
 
-/// State shared between the connection handle, its I/O and its driver task.
 struct Shared {
     closing: AtomicBool,
     closed: watch::Sender<bool>,
-    /// Why the connection is closing or closed; the first reason wins.
     outcome: OnceLock<String>,
     pending: AtomicUsize,
     buffered: AtomicUsize,
-    /// Notified whenever the connection starts closing or closes.
     listener: Option<Arc<Notify>>,
 }
 
@@ -448,22 +372,27 @@ impl Drop for Inner {
     }
 }
 
-/// A single HTTP/2 connection to an APNs server.
+/// Encapsulates a single HTTP/2 connection to the APN server.
 ///
-/// Cloning a connection is cheap and yields another handle to the same
-/// connection. The connection is closed by [`Connection::close`], or when the
-/// last handle is dropped.
+/// Use [`Connection::connect`] to make connections.
+///
+/// Example use:
+///
+/// ```no_run
+/// # async fn example(request: aapns::connection::Request) -> aapns::errors::Result<()> {
+/// let conn = aapns::connection::Connection::connect("https://api.push.apple.com", None).await?;
+/// let response = conn.post(&request).await;
+/// conn.close().await;
+/// # Ok(())
+/// # }
+/// ```
 #[derive(Clone)]
 pub struct Connection {
     inner: Arc<Inner>,
 }
 
 impl Connection {
-    /// Connects to `origin`, which must be of the form `https://<host>[:<port>]`.
-    ///
-    /// Without a TLS configuration, the server is verified against the
-    /// platform's trust store and no client certificate is presented.
-    /// Must be called within a Tokio runtime.
+    /// Connect to `origin` and return a Connection
     pub async fn connect(origin: &str, tls: Option<Arc<ClientConfig>>) -> Result<Connection> {
         let origin = Origin::parse(origin)?;
         let tls = match tls {
@@ -473,7 +402,6 @@ impl Connection {
         Self::connect_origin(origin, tls, None).await
     }
 
-    /// Connects to a parsed origin; `tls` must already use the `h2` ALPN.
     pub(crate) async fn connect_origin(
         origin: Origin,
         tls: Arc<ClientConfig>,
@@ -498,7 +426,6 @@ impl Connection {
         Self::establish(stream, origin, authority, listener).await
     }
 
-    /// Starts HTTP/2 on an established (TLS) stream.
     async fn establish<T>(
         stream: T,
         origin: Origin,
@@ -516,41 +443,33 @@ impl Connection {
             buffered: AtomicUsize::new(0),
             listener,
         });
-        let monitor = Arc::clone(&shared);
-        let io = MonitoredIo::new(stream, move |event: Event<'_>| match event {
-            Event::GoAway(goaway) => {
-                let outcome = goaway.outcome();
-                tracing::info!(last_stream_id = goaway.last_stream_id, %outcome, "server is closing the connection");
-                monitor.mark_closing(Some(outcome));
-            }
-            Event::Error(error) => {
-                if is_tls_error(error) {
-                    // TLS 1.3 servers check the client certificate after the
-                    // client considers the handshake complete, so a rejected
-                    // (expired, revoked, wrong environment) certificate is
-                    // reported here, not by `connect`. Make sure it is seen.
-                    tracing::error!("TLS error: {error}");
-                } else {
-                    // e.g. connection reset by peer or timed out
-                    tracing::debug!(%error, "connection failed");
-                }
-                monitor.mark_closing(Some(error.to_string()));
-            }
-        });
         let (sender, connection) = h2::client::Builder::new()
             .enable_push(false)
             .initial_window_size(MAX_RESPONSE_SIZE as u32)
             .initial_connection_window_size(CONNECTION_WINDOW_SIZE)
             .max_header_list_size(u16::MAX.into())
-            .handshake::<_, Bytes>(io)
+            .handshake::<_, Bytes>(stream)
             .await
             .map_err(|e| Error::Closed(describe(&e)))?;
 
         let driver_shared = Arc::clone(&shared);
+        let driver_sender = sender.clone();
         let driver = tokio::spawn(async move {
             let outcome = match connection.await {
-                Ok(()) => "Server closed the connection".to_owned(),
-                Err(error) => describe(&error),
+                // h2 keeps the GOAWAY, if any, as the reason new requests fail
+                Ok(()) => match probe(&driver_sender) {
+                    Err(error) if error.is_go_away() => describe(&error),
+                    _ => "Server closed the connection".to_owned(),
+                },
+                Err(error) => {
+                    let outcome = describe(&error);
+                    if is_tls_error(&error) {
+                        // TLS 1.3 servers reject a bad client certificate after the handshake,
+                        // e.g. an expired certificate is reported here, so log it
+                        tracing::error!("TLS error: {outcome}");
+                    }
+                    outcome
+                }
             };
             tracing::debug!(%outcome, "connection closed");
             driver_shared.mark_closed(Some(outcome));
@@ -568,11 +487,7 @@ impl Connection {
         })
     }
 
-    /// Posts `request` on this connection.
-    ///
-    /// Returns [`Error::Blocked`] if the connection is at its concurrent
-    /// request limit, [`Error::Closed`] if the connection is (or becomes)
-    /// unusable and [`Error::Timeout`] if the request expires.
+    /// Post the `request` on the connection
     pub async fn post(&self, request: &Request) -> Result<Response> {
         request.time_left()?;
         let shared = &*self.inner.shared;
@@ -633,9 +548,8 @@ impl Connection {
         Response::new(parts.status.as_u16(), parts.headers, &data)
     }
 
-    /// Maps an error opening a stream.
     fn send_failed(&self, error: h2::Error) -> Error {
-        if error.is_go_away() || error.is_io() || self.probe().is_err() {
+        if error.is_go_away() || error.is_io() || probe(&self.inner.sender).is_err() {
             let shared = &*self.inner.shared;
             shared.mark_closing(Some(describe(&error)));
             shared.closed_error()
@@ -644,7 +558,6 @@ impl Connection {
         }
     }
 
-    /// Maps an error on an open stream.
     fn stream_failed(&self, error: h2::Error) -> Error {
         if error.is_reset() {
             return Error::StreamReset(error.reason().map_or(0, u32::from));
@@ -660,16 +573,7 @@ impl Connection {
         }
     }
 
-    /// Checks whether the connection can open new streams.
-    fn probe(&self) -> std::result::Result<(), h2::Error> {
-        let mut ready = pin!(self.inner.sender.clone().ready());
-        match ready.as_mut().poll(&mut Context::from_waker(Waker::noop())) {
-            Poll::Ready(Err(error)) => Err(error),
-            _ => Ok(()),
-        }
-    }
-
-    /// Closes the connection. Requests in flight fail with [`Error::Closed`].
+    /// Terminate the connection and free up the resources
     pub async fn close(&self) {
         let shared = &*self.inner.shared;
         shared.mark_closing(Some("Closed".into()));
@@ -681,12 +585,10 @@ impl Connection {
         shared.mark_closed(None);
     }
 
-    /// Stops accepting new requests, letting requests in flight complete.
     pub(crate) fn begin_closing(&self) {
         self.inner.shared.mark_closing(None);
     }
 
-    /// The state of the connection.
     pub fn state(&self) -> ConnectionState {
         let shared = &*self.inner.shared;
         if shared.is_closed() {
@@ -698,38 +600,31 @@ impl Connection {
         }
     }
 
-    /// Whether the connection is closing or closed.
     pub fn is_closing(&self) -> bool {
         self.inner.shared.is_closing()
     }
 
-    /// Whether the connection is closed.
     pub fn is_closed(&self) -> bool {
         self.inner.shared.is_closed()
     }
 
-    /// Whether the connection is unable to take more requests, either for now
-    /// or permanently.
+    /// Is this connection unable to process more requests, either for now or permanently?
     pub fn is_blocked(&self) -> bool {
         self.is_closing()
             || self.inner.shared.pending.load(Ordering::SeqCst)
                 >= self.inner.sender.current_max_send_streams()
     }
 
-    /// Why the connection is closing or closed, for example `NO_ERROR` when the
-    /// server shut it down gracefully or `BadCertificateEnvironment` when
-    /// APNs rejected the client certificate.
     pub fn outcome(&self) -> Option<&str> {
         self.inner.shared.outcome.get().map(String::as_str)
     }
 
-    /// Count of the requests that were sent and await a response.
+    /// Count of the requests that were sent out and are awaiting server response.
     pub fn inflight(&self) -> usize {
         self.pending().saturating_sub(self.buffered())
     }
 
-    /// Count of the requests that are still to be sent out, for example
-    /// waiting for HTTP/2 flow control.
+    /// Count of the requests that we are still to send out.
     pub fn buffered(&self) -> usize {
         self.inner.shared.buffered.load(Ordering::SeqCst)
     }
@@ -739,12 +634,10 @@ impl Connection {
         self.inner.shared.pending.load(Ordering::SeqCst)
     }
 
-    /// Host this connection is connected to.
     pub fn host(&self) -> &str {
         &self.inner.host
     }
 
-    /// Port this connection is connected to.
     pub fn port(&self) -> u16 {
         self.inner.port
     }
@@ -762,7 +655,6 @@ impl fmt::Debug for Connection {
     }
 }
 
-/// Sends `body` as the request body, respecting HTTP/2 flow control.
 async fn send_body(
     stream: &mut SendStream<Bytes>,
     mut body: Bytes,
@@ -792,6 +684,21 @@ async fn send_body(
     }
 }
 
+fn probe(sender: &SendRequest<Bytes>) -> std::result::Result<(), h2::Error> {
+    let mut ready = pin!(sender.clone().ready());
+    match ready.as_mut().poll(&mut Context::from_waker(Waker::noop())) {
+        Poll::Ready(Err(error)) => Err(error),
+        _ => Ok(()),
+    }
+}
+
+// rustls errors reach h2 as InvalidData I/O errors
+fn is_tls_error(error: &h2::Error) -> bool {
+    error
+        .get_io()
+        .is_some_and(|io| io.kind() == io::ErrorKind::InvalidData)
+}
+
 fn describe(error: &h2::Error) -> String {
     match error.get_io() {
         Some(io) => io.to_string(),
@@ -803,10 +710,10 @@ fn timeout_error(message: String) -> io::Error {
     io::Error::new(io::ErrorKind::TimedOut, message)
 }
 
-/// Disables Nagle's algorithm and enables dead peer detection.
 fn configure_socket(tcp: &TcpStream) -> io::Result<()> {
     tcp.set_nodelay(true)?;
     let socket = socket2::SockRef::from(tcp);
+    // Not all options are available on all platforms
     let keepalive = socket2::TcpKeepalive::new().with_time(TCP_KEEPALIVE_IDLE);
     #[cfg(any(
         target_os = "android",
@@ -1056,7 +963,6 @@ mod tests {
         assert_eq!(socket.tcp_user_timeout().unwrap(), Some(TCP_USER_TIMEOUT));
     }
 
-    /// A transport whose reads fail with the given error; writes succeed.
     struct FailingIo(Option<io::Error>);
 
     impl AsyncRead for FailingIo {
@@ -1109,7 +1015,6 @@ mod tests {
         connection
     }
 
-    /// Log output captured from the current thread.
     #[derive(Clone, Default)]
     struct Logs(Arc<Mutex<Vec<u8>>>);
 
@@ -1125,8 +1030,6 @@ mod tests {
     }
 
     impl Logs {
-        /// Captures logs of tasks run on this thread, i.e. by a current
-        /// thread runtime, until the guard is dropped.
         fn capture() -> (Logs, tracing::subscriber::DefaultGuard) {
             let logs = Logs::default();
             let writer = logs.clone();

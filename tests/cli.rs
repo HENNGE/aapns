@@ -1,4 +1,3 @@
-//! End-to-end tests of the command line client.
 #![cfg(all(unix, feature = "cli"))]
 
 mod common;
@@ -131,7 +130,6 @@ async fn missing_client_certificate() {
     );
 }
 
-/// Installs a fake `xcrun` that records its arguments and the payload.
 fn fake_xcrun(dir: &Path, exit_code: i32) {
     let script = format!(
         "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$(dirname \"$0\")/args\"\ncat \"$5\" > \"$(dirname \"$0\")/payload\"\nexit {exit_code}\n"

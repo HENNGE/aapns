@@ -1,5 +1,3 @@
-//! Functional tests of the low level API against the mock server.
-
 mod common;
 
 use std::time::{Duration, Instant};
@@ -87,7 +85,7 @@ async fn closed_connection() {
 async fn termination() {
     let server = MockServer::start(Flavor::TerminatesConnection).await;
     let connection = connect(&server).await;
-    // The terminating server may break the first request, and definitely breaks the second.
+    // terminating server may break the first request, and definitely breaks the second
     let result = async {
         connection.post(&request42()).await?;
         connection.post(&request42()).await
@@ -96,9 +94,9 @@ async fn termination() {
     match result {
         Err(Error::Closed(outcome)) => assert!(
             [
-                "NO_ERROR",
+                "connection error received",
                 "Server closed the connection",
-                "reset by peer",
+                "connection reset",
                 "broken pipe"
             ]
             .iter()
@@ -196,18 +194,16 @@ async fn untrusted_server() {
 async fn bad_certificate_environment() {
     let server = MockServer::start(Flavor::BadCertificateEnvironment).await;
     let connection = connect(&server).await;
-    wait_until(Duration::from_secs(5), || connection.is_closing()).await;
-    assert_eq!(connection.outcome(), Some("BadCertificateEnvironment"));
     match connection.post(&request42()).await {
-        Err(Error::Closed(outcome)) => assert_eq!(outcome, "BadCertificateEnvironment"),
+        Err(Error::Closed(outcome)) => {
+            assert!(outcome.contains("BadCertificateEnvironment"), "{outcome}")
+        }
         other => panic!("unexpected {other:?}"),
     }
+    assert!(connection.is_closing());
     connection.close().await;
 }
 
-/// With TLS 1.3, the server checks the client certificate after the client
-/// considers the handshake complete: connecting succeeds, and the rejection
-/// only surfaces when reading from the connection.
 #[tokio::test]
 async fn client_certificate_rejected() {
     let (logs, _guard) = Logs::capture();

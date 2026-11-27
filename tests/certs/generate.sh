@@ -1,14 +1,5 @@
 #!/usr/bin/env bash
-# Regenerates the throwaway PKI used by the functional tests, the mock server
-# example and `aapns server --server local`.
-#
-#   ca.pem          test CA certificate (trusted by the client in tests)
-#   server.pem      server certificate for localhost, signed by the test CA
-#   server-key.pem  private key for server.pem
-#   client.pem      client certificate + private key in one file, the same
-#                   layout as an Apple push certificate exported to PEM
-#
-# The CA private key is discarded, so all files must be regenerated together.
+# Test PKI: ca.pem, server.pem with server-key.pem, and client.pem with its key
 set -euo pipefail
 cd "$(dirname "$0")"
 

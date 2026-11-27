@@ -1,4 +1,3 @@
-//! Helpers shared by the functional tests.
 #![allow(dead_code)]
 
 pub mod server;
@@ -15,8 +14,6 @@ use serde_json::json;
 
 pub use server::{APNS_ID, Flavor, MockServer, certs_dir};
 
-/// TLS configuration trusting the test CA and presenting the test client
-/// certificate.
 pub fn tls_config() -> Arc<ClientConfig> {
     static CONFIG: OnceLock<Arc<ClientConfig>> = OnceLock::new();
     CONFIG
@@ -38,14 +35,12 @@ pub fn notification() -> Notification {
     Notification::new(Alert::new("body").with_title("title"))
 }
 
-/// A target for the mock server.
 pub fn target(server: &MockServer) -> Server {
     Server::new(certs_dir().join("client.pem"), "localhost")
         .with_port(server.port())
         .with_ca_file(certs_dir().join("ca.pem"))
 }
 
-/// Runs the futures concurrently, returning their outputs in order.
 pub async fn join_all<F>(futures: impl IntoIterator<Item = F>) -> Vec<F::Output>
 where
     F: Future + Send + 'static,
@@ -59,8 +54,6 @@ where
     outputs
 }
 
-/// Asserts that the mock server's ¼s artificial delay was the bulk of the
-/// time taken since `started`.
 pub fn assert_quarter_second(started: Instant) {
     let took = started.elapsed();
     assert!(
@@ -69,7 +62,6 @@ pub fn assert_quarter_second(started: Instant) {
     );
 }
 
-/// Log output captured from the current thread.
 #[derive(Clone, Default)]
 pub struct Logs(Arc<std::sync::Mutex<Vec<u8>>>);
 
@@ -85,8 +77,6 @@ impl std::io::Write for Logs {
 }
 
 impl Logs {
-    /// Captures logs of tasks run on this thread, i.e. by a current thread
-    /// runtime, until the guard is dropped.
     pub fn capture() -> (Logs, tracing::subscriber::DefaultGuard) {
         let logs = Logs::default();
         let writer = logs.clone();
@@ -103,7 +93,6 @@ impl Logs {
     }
 }
 
-/// Waits until `condition` holds, for up to `timeout`.
 pub async fn wait_until(timeout: Duration, mut condition: impl FnMut() -> bool) {
     let deadline = Instant::now() + timeout;
     while !condition() {
