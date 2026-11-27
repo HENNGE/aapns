@@ -7,112 +7,64 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  lock:
-    timeout-minutes: 10
-    strategy:
-      matrix:
-        python-version:  ["3.8", "3.9", "3.10", "3.11"]
-    runs-on: "ubuntu-latest"
-    steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-python@v4
-        with:
-          python-version: ${{ matrix.python-version }}
-      - run: curl -sSL https://install.python-poetry.org | python3 -
-      - run: poetry lock
-      - uses: actions/cache@v3
-        with:
-          path: poetry.lock
-          key: ${{ github.sha }}-${{ matrix.python-version }}
-          
   pytest:
     timeout-minutes: 10
-    needs: lock
     strategy:
       matrix:
         python-version: ["3.8", "3.9", "3.10", "3.11"]
     runs-on: "ubuntu-latest"
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-go@v4
-      - uses: actions/setup-python@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+      - uses: astral-sh/setup-uv@v10.4.0
         with:
           python-version: ${{ matrix.python-version }}
-      - uses: actions/cache@v3
-        with:
-          path: poetry.lock
-          key: ${{ github.sha }}-${{ matrix.python-version }}
-      - run: curl -sSL https://install.python-poetry.org | python3 -
-      - run: poetry install --extras cli
-      - run: poetry run pytest --verbose
-      
+      - run: uv sync --locked --extra cli
+      - run: uv run pytest --verbose
+
   mypy:
     timeout-minutes: 10
-    needs: lock
     strategy:
       matrix:
         python-version: ["3.8", "3.9", "3.10", "3.11"]
     runs-on: "ubuntu-latest"
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-python@v4
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.4.0
         with:
           python-version: ${{ matrix.python-version }}
-      - uses: actions/cache@v3
-        with:
-          path: poetry.lock
-          key: ${{ github.sha }}-${{ matrix.python-version }}
-      - run: curl -sSL https://install.python-poetry.org | python3 -
-      - run: poetry install --extras cli
-      - run: poetry run mypy
-      
+      - run: uv sync --locked --extra cli
+      - run: uv run mypy
+
   isort:
     timeout-minutes: 10
-    needs: lock
     runs-on: "ubuntu-latest"
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-python@v4
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.4.0
         with:
           python-version: "3.11"
-      - uses: actions/cache@v3
-        with:
-          path: poetry.lock
-          key: ${{ github.sha }}-3.11
-      - run: curl -sSL https://install.python-poetry.org | python3 -
-      - run: poetry install --extras cli
-      - run: poetry run isort --check --diff src tests
-      
+      - run: uv sync --locked --extra cli
+      - run: uv run isort --check --diff src tests
+
   black:
     timeout-minutes: 10
-    needs: lock
     runs-on: "ubuntu-latest"
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-python@v4
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.4.0
         with:
           python-version: "3.11"
-      - uses: actions/cache@v3
-        with:
-          path: poetry.lock
-          key: ${{ github.sha }}-3.11
-      - run: curl -sSL https://install.python-poetry.org | python3 -
-      - run: poetry install --extras cli
-      - run: poetry run black --check src/ tests/
-      
+      - run: uv sync --locked --extra cli
+      - run: uv run black --check src/ tests/
+
   ruff:
     timeout-minutes: 10
-    needs: lock
     runs-on: "ubuntu-latest"
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-python@v4
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.4.0
         with:
           python-version: "3.11"
-      - uses: actions/cache@v3
-        with:
-          path: poetry.lock
-          key: ${{ github.sha }}-3.11
-      - run: curl -sSL https://install.python-poetry.org | python3 -
-      - run: poetry install --extras cli
-      - run: poetry run ruff src/ tests/
+      - run: uv sync --locked --extra cli
+      - run: uv run ruff src/ tests/

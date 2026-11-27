@@ -36,13 +36,11 @@ jobs:
       
       - uses: actions/checkout@v3
       
-      - uses: actions/setup-python@v4
+      - uses: astral-sh/setup-uv@v10.4.0
         with:
           python-version: ${{ env.PYTHON_VERSION_MIN }}
-          
-      - run: curl -sSL https://install.python-poetry.org | python3 -
       
-      - run: echo "PKG_VER=$(poetry version --short)" >> $GITHUB_ENV
+      - run: echo "PKG_VER=$(uv version --short)" >> $GITHUB_ENV
       
       - name: Check whether current tag matches package version
         if: env.TAG_NAME != env.PKG_VER
@@ -52,7 +50,7 @@ jobs:
             core.setFailed('Tag name (${{ env.TAG_NAME }}) does not match package version (${{ env.PKG_VER }}).')
       
       - name: Build package
-        run: poetry build
+        run: uv build
         
       - name: Publish package to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1

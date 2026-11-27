@@ -9,4 +9,3 @@ __pycache__
 !.github
 !.pre-commit-config.yaml
 !.cafile
-poetry.lock
